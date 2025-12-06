@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────
-#  ULTRANSC v0.3.1 — NIGHT-RUN SAFE EDITION
+#  ULTRANSC v0.3.2 — UNIVERSAL TIMEOUT EDITION
 # ─────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,8 +34,36 @@ log_error() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" | tee -a "$ERROR_LOG"
 }
 
-# Trap ANY crash and continue queue
+# Global crash-safe handler
 trap 'log_error "ULTRANSC crashed inside a job. Continuing…"' ERR
+
+# ─────────────────────────────────────────
+# UNIVERSAL TIMEOUT (NO DEPENDENCIES)
+# ─────────────────────────────────────────
+timeout_cmd() {
+    # $1 = max seconds
+    # $2... = command
+    local secs="$1"
+    shift
+
+    (
+        "$@" &
+        local cmd_pid=$!
+
+        (
+            sleep "$secs"
+            kill -0 "$cmd_pid" 2>/dev/null && kill -9 "$cmd_pid" 2>/dev/null
+        ) &
+        local watcher=$!
+
+        wait "$cmd_pid"
+        local status=$?
+
+        kill -0 "$watcher" 2>/dev/null && kill -9 "$watcher" 2>/dev/null
+
+        return $status
+    )
+}
 
 # ─────────────────────────────────────────
 #  0. INIT FOLDERS
@@ -74,7 +102,7 @@ if ! touch "$ROOT_DIR/.ultransc_write_test" 2>/dev/null; then
 fi
 rm -f "$ROOT_DIR/.ultransc_write_test"
 
-# Ensure yt-dlp exists locally
+# yt-dlp local copy bootstrap
 if [ ! -f "$BIN_DIR/yt-dlp" ]; then
     log "yt-dlp missing — downloading local copy…"
     curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
@@ -85,7 +113,7 @@ else
 fi
 
 if ! command -v ffmpeg &>/dev/null; then
-    log_error "FFmpeg not found. Install it: brew install ffmpeg"
+    log_error "FFmpeg not found. Install it (brew install ffmpeg)."
     exit 1
 fi
 log "FFmpeg OK"
@@ -124,7 +152,6 @@ update_model_list() {
 update_model_list
 log "Model list updated"
 
-# Select model (prefer small for classroom accuracy)
 choose_model() {
     if (( RAM_GB >= 6 )) && [ -f "$MODELS_DIR/ggml-medium.en.bin" ]; then
         echo "ggml-medium.en.bin"
@@ -139,7 +166,6 @@ log "Using transcription model: $MODEL"
 #  NIGHT MODE SAFETY UTILITIES
 # ─────────────────────────────────────────
 
-# Retry ffmpeg safely
 retry_ffmpeg() {
     local input="$1"
     local output="$2"
@@ -147,7 +173,7 @@ retry_ffmpeg() {
     for attempt in {1..3}; do
         log "FFmpeg attempt $attempt for $input"
 
-        if timeout 240 ffmpeg -i "$input" \
+        if timeout_cmd 240 ffmpeg -i "$input" \
             -af "highpass=f=200, lowpass=f=3000" \
             -ar 16000 -ac 1 -c:a pcm_s16le "$output" -y; then
             return 0
@@ -161,7 +187,6 @@ retry_ffmpeg() {
     return 1
 }
 
-# Retry whisper safely
 retry_whisper() {
     local wav="$1"
     local out="$2"
@@ -169,7 +194,7 @@ retry_whisper() {
     for attempt in {1..3}; do
         log "Whisper attempt $attempt"
 
-        if timeout 7200 whisper-cli "$wav" \
+        if timeout_cmd 7200 whisper-cli "$wav" \
             --language en \
             --model "$MODELS_DIR/$MODEL" \
             --output-txt \
@@ -204,13 +229,13 @@ done
 # ─────────────────────────────────────────
 process_file() {
     local file="$1"
-    local job_id=$(date +%Y%m%d_%H%M%S)
+    local job_id
+    job_id=$(date +%Y%m%d_%H%M%S)
     local job_dir="$WORKSPACE/job_$job_id"
 
     mkdir -p "$job_dir"
     log "Starting job $job_id for $file"
 
-    # Move file into processing
     mv "$file" "$PROCESSING/"
     local base=$(basename "$file")
     local proc_file="$PROCESSING/$base"
@@ -231,18 +256,17 @@ process_file() {
         exit 1
     fi
 
-    # FFmpeg conversion
+    # Convert to normalized WAV
     if ! retry_ffmpeg "$proc_file" "$job_dir/audio.wav"; then
         return 0
     fi
 
-    # WAV integrity
     if [ ! -s "$job_dir/audio.wav" ]; then
         log_error "WAV output is empty. Skipping."
         return 0
     fi
 
-    # Transcribe with retries
+    # Transcription
     if ! retry_whisper "$job_dir/audio.wav" "$job_dir/transcript"; then
         return 0
     fi
@@ -256,13 +280,11 @@ process_file() {
 # ─────────────────────────────────────────
 log "Processing queue…"
 
-# Local files first
 for f in "$INCOMING"/*; do
     [ -e "$f" ] || continue
     process_file "$f" || log_error "Job failed, continuing."
 done
 
-# URL queue next
 while IFS= read -r url; do
     [[ -z "$url" ]] && continue
 

@@ -1,1 +1,7 @@
 models/
+queue/done/
+queue/incoming/
+queue/processing/
+logs/
+workspace/
+*.log
