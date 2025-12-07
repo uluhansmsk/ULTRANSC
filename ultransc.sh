@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────
-#  ULTRANSC v0.3.2 — UNIVERSAL TIMEOUT EDITION
+# ULTRANSC v0.3.3 — Faint Audio Intelligence Edition
 # ─────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -19,13 +19,17 @@ WORKSPACE="$ROOT_DIR/workspace"
 LOG_DIR="$ROOT_DIR/logs"
 
 MODEL_JSON="$MODELS_DIR/list.json"
-DEFAULT_MODEL="ggml-medium.en.bin"     # small.en is MORE stable for lectures
+DEFAULT_MODEL="ggml-medium.en.bin"
 
 SYSTEM_LOG="$LOG_DIR/system.log"
 ERROR_LOG="$LOG_DIR/errors.log"
 
+mkdir -p "$INCOMING" "$PROCESSING" "$DONE"
+mkdir -p "$MODELS_DIR" "$BIN_DIR" "$WORKSPACE" "$LOG_DIR"
+touch "$LINKS" "$SYSTEM_LOG" "$ERROR_LOG"
+
 # ─────────────────────────────────────────
-#  UTILITY: log
+# LOGGING
 # ─────────────────────────────────────────
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$SYSTEM_LOG"
@@ -33,56 +37,37 @@ log() {
 log_error() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" | tee -a "$ERROR_LOG"
 }
-
-# Global crash-safe handler
 trap 'log_error "ULTRANSC crashed inside a job. Continuing…"' ERR
 
 # ─────────────────────────────────────────
-# UNIVERSAL TIMEOUT (NO DEPENDENCIES)
+# UNIVERSAL TIMEOUT
 # ─────────────────────────────────────────
 timeout_cmd() {
-    # $1 = max seconds
-    # $2... = command
     local secs="$1"
     shift
 
     (
         "$@" &
-        local cmd_pid=$!
+        local pid=$!
 
         (
             sleep "$secs"
-            kill -0 "$cmd_pid" 2>/dev/null && kill -9 "$cmd_pid" 2>/dev/null
+            kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
         ) &
         local watcher=$!
 
-        wait "$cmd_pid"
+        wait "$pid"
         local status=$?
 
         kill -0 "$watcher" 2>/dev/null && kill -9 "$watcher" 2>/dev/null
-
         return $status
     )
 }
 
 # ─────────────────────────────────────────
-#  0. INIT FOLDERS
-# ─────────────────────────────────────────
-mkdir -p "$INCOMING" "$PROCESSING" "$DONE"
-mkdir -p "$MODELS_DIR" "$BIN_DIR" "$WORKSPACE" "$LOG_DIR"
-
-touch "$LINKS" "$SYSTEM_LOG" "$ERROR_LOG"
-
-# ─────────────────────────────────────────
-#  1. ENVIRONMENT CHECK
+# ENVIRONMENT CHECK
 # ─────────────────────────────────────────
 log "Running full environment check…"
-
-OS=$(uname -s)
-if [[ "$OS" != "Darwin" && "$OS" != "Linux" ]]; then
-    log_error "Unsupported OS: $OS"
-    exit 1
-fi
 
 ARCH=$(uname -m)
 log "Detected architecture: $ARCH"
@@ -90,41 +75,29 @@ log "Detected architecture: $ARCH"
 RAM_GB=$(($(sysctl -n hw.memsize 2>/dev/null || grep MemTotal /proc/meminfo | awk '{print $2 * 1024}') / 1024 / 1024 / 1024))
 log "System RAM: ${RAM_GB}GB"
 
-FREE_GB=$(df -Pk "$ROOT_DIR" | awk 'NR==2 {print int($4/1024/1024)}')
-if (( FREE_GB < 2 )); then
-    log_error "Less than 2GB free disk space — aborting."
+if ! command -v ffmpeg >/dev/null; then
+    log_error "FFmpeg not found."
     exit 1
 fi
+log "FFmpeg OK"
 
-if ! touch "$ROOT_DIR/.ultransc_write_test" 2>/dev/null; then
-    log_error "Cannot write to ULTRANSC directory ($ROOT_DIR)"
+if ! command -v whisper-cli >/dev/null; then
+    log_error "whisper-cli not found."
     exit 1
 fi
-rm -f "$ROOT_DIR/.ultransc_write_test"
+log "whisper-cli OK"
 
-# yt-dlp local copy bootstrap
+# yt-dlp bootstrap
 if [ ! -f "$BIN_DIR/yt-dlp" ]; then
-    log "yt-dlp missing — downloading local copy…"
+    log "Downloading yt-dlp…"
     curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-         -o "$BIN_DIR/yt-dlp"
+        -o "$BIN_DIR/yt-dlp"
     chmod +x "$BIN_DIR/yt-dlp"
 else
     log "yt-dlp OK"
 fi
 
-if ! command -v ffmpeg &>/dev/null; then
-    log_error "FFmpeg not found. Install it (brew install ffmpeg)."
-    exit 1
-fi
-log "FFmpeg OK"
-
-if ! command -v whisper-cli &>/dev/null; then
-    log_error "whisper-cli not found. Install whisper-cpp (brew install whisper-cpp)."
-    exit 1
-fi
-log "whisper-cli OK"
-
-# Ensure model.json exists
+# Model list setup
 if [ ! -f "$MODEL_JSON" ]; then
     echo '{"installed":{}, "default":"ggml-medium.en.bin"}' > "$MODEL_JSON"
 fi
@@ -148,7 +121,6 @@ update_model_list() {
         echo "}"
     } > "$MODEL_JSON"
 }
-
 update_model_list
 log "Model list updated"
 
@@ -163,140 +135,159 @@ MODEL=$(choose_model)
 log "Using transcription model: $MODEL"
 
 # ─────────────────────────────────────────
-#  NIGHT MODE SAFETY UTILITIES
+#  AUDIO ANALYSIS (mean volume)
+# ─────────────────────────────────────────
+get_mean_volume() {
+    ffmpeg -i "$1" -af "volumedetect" -f null /dev/null 2>&1 \
+        | grep 'mean_volume' | sed 's/.*mean_volume: //; s/ dB//'
+}
+
+# Count BLANK_AUDIO lines from Whisper SRT
+count_blank_segments() {
+    grep -c "\[BLANK_AUDIO\]" "$1" || echo 0
+}
+
+# ─────────────────────────────────────────
+# FFMPEG FILTER STAGES
 # ─────────────────────────────────────────
 
-retry_ffmpeg() {
+FILTER_STAGE1="highpass=f=120, lowpass=f=3800, dynaudnorm=p=0.8:m=10, volume=12dB"
+FILTER_STAGE2="highpass=f=120, lowpass=f=4200, dynaudnorm=p=0.9:m=12, volume=18dB"
+
+convert_with_filter() {
     local input="$1"
     local output="$2"
+    local filter="$3"
+    local tag="$4"
 
-    for attempt in {1..3}; do
-        log "FFmpeg attempt $attempt for $input"
+    log "Running FFmpeg ($tag)…"
 
-        if timeout_cmd 240 ffmpeg -i "$input" \
-            -af "highpass=f=200, lowpass=f=3000" \
-            -ar 16000 -ac 1 -c:a pcm_s16le "$output" -y; then
-            return 0
-        fi
-
-        log_error "FFmpeg conversion failed (attempt $attempt)"
-        sleep 2
-    done
-
-    log_error "FFmpeg failed after 3 attempts. Skipping file."
-    return 1
+    timeout_cmd 300 ffmpeg -i "$input" \
+        -af "$filter" \
+        -ar 16000 -ac 1 -c:a pcm_s16le \
+        "$output" -y
 }
 
-retry_whisper() {
+# ─────────────────────────────────────────
+# WHISPER RUNNER
+# ─────────────────────────────────────────
+run_whisper() {
     local wav="$1"
-    local out="$2"
+    local outprefix="$2"
 
-    for attempt in {1..3}; do
-        log "Whisper attempt $attempt"
-
-        if timeout_cmd 7200 whisper-cli "$wav" \
-            --language en \
-            --model "$MODELS_DIR/$MODEL" \
-            --output-txt \
-            --output-srt \
-            --output-json \
-            --output-file "$out"; then
-            return 0
-        fi
-
-        log_error "Whisper failed at attempt $attempt"
-        sleep 3
-    done
-
-    log_error "Whisper failed after 3 attempts. Skipping."
-    return 1
+    timeout_cmd 7200 whisper-cli "$wav" \
+        --language en \
+        --model "$MODELS_DIR/$MODEL" \
+        --output-txt \
+        --output-srt \
+        --output-json \
+        --output-file "$outprefix"
 }
 
 # ─────────────────────────────────────────
-#  CLEAN UP INCOMPLETE JOBS
-# ─────────────────────────────────────────
-for job in "$WORKSPACE"/*; do
-    [ -d "$job" ] || continue
-
-    if [ ! -f "$job/transcript.txt" ]; then
-        log "Cleaning incomplete job: $job"
-        rm -rf "$job"
-    fi
-done
-
-# ─────────────────────────────────────────
-#  PROCESSING FUNCTION
+# PROCESS FILE
 # ─────────────────────────────────────────
 process_file() {
     local file="$1"
-    local job_id
-    job_id=$(date +%Y%m%d_%H%M%S)
-    local job_dir="$WORKSPACE/job_$job_id"
+
+    # sanitize filename for folder
+    local base=$(basename "$file")
+    local safe_name="${base//[^A-Za-z0-9._-]/_}"
+    local name="${safe_name%.*}"
+
+    local job_id=$(date +%Y%m%d_%H%M%S)
+    local job_dir="$WORKSPACE/${name}_$job_id"
 
     mkdir -p "$job_dir"
     log "Starting job $job_id for $file"
 
     mv "$file" "$PROCESSING/"
-    local base=$(basename "$file")
     local proc_file="$PROCESSING/$base"
     cp "$proc_file" "$job_dir/raw_input"
 
-    # Duration guard
+    # Duration check
     DURATION=$(ffprobe -v error -show_entries format=duration \
-               -of default=noprint_wrappers=1:nokey=1 "$proc_file" | awk '{print int($1)}')
+               -of default=noprint_wrappers=1:nokey=1 "$proc_file" \
+               | awk '{print int($1)}')
     if (( DURATION > 10800 )); then
-        log_error "File > 3 hours. Skipping for safety."
-        return 0
+        log_error "File exceeds 3 hours, skipping."
+        return
     fi
 
-    # Disk space guard
-    SPACE_LEFT=$(df -Pk "$ROOT_DIR" | awk 'NR==2 {print int($4/1024)}')
-    if (( SPACE_LEFT < 500 )); then
-        log_error "Low disk (<500MB). Aborting batch."
-        exit 1
+    # Stage 0: loudness evaluation
+    log "Analyzing loudness…"
+    MEAN_VOL=$(get_mean_volume "$proc_file")
+    log "Mean volume: $MEAN_VOL dB"
+
+    # Convert using Stage 1 first
+    convert_with_filter "$proc_file" "$job_dir/audio_stage1.wav" "$FILTER_STAGE1" "Stage 1"
+
+    # Whisper Stage 1
+    run_whisper "$job_dir/audio_stage1.wav" "$job_dir/transcript_stage1"
+
+    # Check blank audio ratio
+    SRT1="$job_dir/transcript_stage1.srt"
+    TOTAL_LINES=$(wc -l < "$SRT1")
+    BLANKS=$(count_blank_segments "$SRT1")
+    BLANK_RATIO=$(awk -v b="$BLANKS" -v t="$TOTAL_LINES" 'BEGIN { if (t==0) print 1; else print b/t }')
+
+    log "Blank ratio after Stage 1: $BLANK_RATIO"
+
+    USED_STAGE="stage1"
+    RERUN="false"
+
+    if (( $(echo "$BLANK_RATIO > 0.15" | bc -l) )); then
+        log "High blank ratio detected — reprocessing with Stage 2"
+
+        convert_with_filter "$proc_file" "$job_dir/audio_stage2.wav" "$FILTER_STAGE2" "Stage 2"
+
+        run_whisper "$job_dir/audio_stage2.wav" "$job_dir/transcript"
+
+        USED_STAGE="stage2"
+        RERUN="true"
+    else
+        mv "$job_dir/transcript_stage1.txt" "$job_dir/transcript.txt"
+        mv "$job_dir/transcript_stage1.json" "$job_dir/transcript.json"
+        mv "$job_dir/transcript_stage1.srt" "$job_dir/transcript.srt"
+        USED_STAGE="stage1"
     fi
 
-    # Convert to normalized WAV
-    if ! retry_ffmpeg "$proc_file" "$job_dir/audio.wav"; then
-        return 0
-    fi
-
-    if [ ! -s "$job_dir/audio.wav" ]; then
-        log_error "WAV output is empty. Skipping."
-        return 0
-    fi
-
-    # Transcription
-    if ! retry_whisper "$job_dir/audio.wav" "$job_dir/transcript"; then
-        return 0
-    fi
+    # Audio analysis
+    cat > "$job_dir/audio_analysis.json" <<EOF
+{
+    "mean_volume_db": $MEAN_VOL,
+    "blank_ratio": $BLANK_RATIO,
+    "filter_used": "$USED_STAGE",
+    "rerun": $RERUN
+}
+EOF
 
     mv "$proc_file" "$DONE/$base"
     log "Job $job_id completed."
 }
 
 # ─────────────────────────────────────────
-#  QUEUE HANDLING
+# QUEUE EXECUTION
 # ─────────────────────────────────────────
 log "Processing queue…"
 
 for f in "$INCOMING"/*; do
     [ -e "$f" ] || continue
-    process_file "$f" || log_error "Job failed, continuing."
+    process_file "$f"
 done
 
 while IFS= read -r url; do
     [[ -z "$url" ]] && continue
 
-    log "Downloading URL: $url"
     out="$INCOMING/download_$(date +%s).mp4"
+    log "Downloading: $url"
 
-    if ! "$BIN_DIR/yt-dlp" -o "$out" "$url"; then
-        log_error "Failed to download $url"
-        continue
+    if "$BIN_DIR/yt-dlp" -o "$out" "$url"; then
+        process_file "$out"
+    else
+        log_error "Download failed: $url"
     fi
 
-    process_file "$out" || log_error "Job failed, continuing."
 done < "$LINKS"
 
 log "Queue empty. ULTRANSC completed all tasks."
