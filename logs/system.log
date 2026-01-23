@@ -1,0 +1,68 @@
+[2026-01-23 15:29:13] Running full environment check…
+[2026-01-23 15:29:13] Detected architecture: arm64
+[2026-01-23 15:29:13] System RAM: 8GB
+[2026-01-23 15:29:13] yt-dlp OK
+[2026-01-23 15:29:13] FFmpeg OK
+[2026-01-23 15:29:13] whisper-cli OK
+[2026-01-23 15:29:13] Model list updated
+[2026-01-23 15:29:13] Using transcription model: ggml-medium.en.bin
+[2026-01-23 15:29:13] Processing queue…
+[2026-01-23 15:29:13] Starting job 20260123_152913 for /Users/uluhan/Documents/ULTRANSC/queue/incoming/87099620023.mp4
+[2026-01-23 15:29:16] Analyzing loudness…
+[2026-01-23 15:30:26] Mean volume: -39.8 dB
+[2026-01-23 15:30:26] Computed gain: Stage1 = 21.8 dB, Stage2 = 27.8 dB
+[2026-01-23 15:30:26] Running FFmpeg (Stage 1)…
+[2026-01-23 15:50:35] Blank ratio after Stage 1: 0
+[2026-01-23 15:50:35] Job 20260123_152913 completed.
+[2026-01-23 15:50:35] Queue empty. ULTRANSC completed all tasks.
+[2026-01-23 21:06:37] Running full environment check…
+[2026-01-23 21:07:35] Running full environment check…
+[2026-01-23 21:07:35] Detected architecture: arm64
+[2026-01-23 21:07:35] System RAM: 8GB
+[2026-01-23 21:07:35] yt-dlp OK
+[2026-01-23 21:07:35] FFmpeg OK
+[2026-01-23 21:07:35] whisper-cli OK
+[2026-01-23 21:07:35] Model list updated
+[2026-01-23 21:07:35] Using transcription model: ggml-medium.en.bin
+[2026-01-23 21:07:35] Processing queue…
+[2026-01-23 21:07:35] Queue empty. ULTRANSC completed all tasks.
+[2026-01-23 21:09:48] Running full environment check…
+[2026-01-23 21:09:48] Detected architecture: arm64
+[2026-01-23 21:09:48] System RAM: 8GB
+[2026-01-23 21:09:48] yt-dlp OK
+[2026-01-23 21:09:48] FFmpeg OK
+[2026-01-23 21:09:48] whisper-cli OK
+[2026-01-23 21:09:48] Model list updated
+[2026-01-23 21:09:48] Using transcription model: ggml-medium.en.bin
+[2026-01-23 21:09:49] Processing queue…
+[2026-01-23 21:09:49] Queue empty. ULTRANSC completed all tasks.
+[2026-01-23 21:12:48] Running full environment check…
+[2026-01-23 21:12:48] Detected architecture: arm64
+[2026-01-23 21:12:48] System RAM: 8GB
+[2026-01-23 21:12:48] yt-dlp OK
+[2026-01-23 21:12:48] FFmpeg OK
+[2026-01-23 21:12:48] whisper-cli OK
+[2026-01-23 21:12:48] Model list updated
+[2026-01-23 21:12:48] Using transcription model: ggml-medium.en.bin
+[2026-01-23 21:12:48] Processing queue…
+[2026-01-23 21:12:48] Queue empty. ULTRANSC completed all tasks.
+[2026-01-23 21:12:50] Running full environment check…
+[2026-01-23 21:12:50] Detected architecture: arm64
+[2026-01-23 21:12:50] System RAM: 8GB
+[2026-01-23 21:12:50] yt-dlp OK
+[2026-01-23 21:12:50] FFmpeg OK
+[2026-01-23 21:12:50] whisper-cli OK
+[2026-01-23 21:12:50] Model list updated
+[2026-01-23 21:12:50] Using transcription model: ggml-medium.en.bin
+[2026-01-23 21:12:50] Processing queue…
+[2026-01-23 21:12:50] Queue empty. ULTRANSC completed all tasks.
+[2026-01-23 21:12:51] Running full environment check…
+[2026-01-23 21:12:51] Detected architecture: arm64
+[2026-01-23 21:12:51] System RAM: 8GB
+[2026-01-23 21:12:51] yt-dlp OK
+[2026-01-23 21:12:51] FFmpeg OK
+[2026-01-23 21:12:51] whisper-cli OK
+[2026-01-23 21:12:51] Model list updated
+[2026-01-23 21:12:51] Using transcription model: ggml-medium.en.bin
+[2026-01-23 21:12:51] Processing queue…
+[2026-01-23 21:12:51] Queue empty. ULTRANSC completed all tasks.
