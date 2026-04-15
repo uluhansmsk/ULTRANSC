@@ -57,7 +57,7 @@ build_local_whisper_if_missing() {
     trap 'rm -rf "$tmp_dir"' EXIT
 
     git clone --depth 1 https://github.com/ggerganov/whisper.cpp "$tmp_dir/whisper.cpp"
-    cmake -S "$tmp_dir/whisper.cpp" -B "$tmp_dir/whisper.cpp/build"
+    cmake -S "$tmp_dir/whisper.cpp" -B "$tmp_dir/whisper.cpp/build" -DBUILD_SHARED_LIBS=OFF
     cmake --build "$tmp_dir/whisper.cpp/build" -j
 
     if [ -x "$tmp_dir/whisper.cpp/build/bin/whisper-cli" ]; then

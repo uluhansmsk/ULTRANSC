@@ -5,3 +5,8 @@ queue/processing/
 logs/
 workspace/
 *.log
+.vscode/
+
+queue/.DS_Store
+
+.DS_Store

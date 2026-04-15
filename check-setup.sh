@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ULTRANSC v0.6.0 Installation Validator
+# ULTRANSC v0.7.0 Installation Validator
 # Run this to check if your system is ready
 
 set -euo pipefail
 
 echo "================================================"
-echo "  ULTRANSC v0.6.0 Installation Validator"
+echo "  ULTRANSC v0.7.0 Installation Validator"
 echo "================================================"
 echo
 
