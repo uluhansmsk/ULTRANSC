@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# ULTRANSC v0.5 Installation Validator
+# ULTRANSC v0.6.0 Installation Validator
 # Run this to check if your system is ready
 
 set -euo pipefail
 
 echo "================================================"
-echo "  ULTRANSC v0.5 Installation Validator"
+echo "  ULTRANSC v0.6.0 Installation Validator"
 echo "================================================"
 echo
 
@@ -21,7 +21,6 @@ check_command() {
     
     if command -v "$cmd" &>/dev/null; then
         echo "✅ $cmd: $(command -v "$cmd")"
-        return 0
     else
         if [ "$required" = "yes" ]; then
             echo "❌ $cmd: NOT FOUND (REQUIRED)"
@@ -30,8 +29,46 @@ check_command() {
             echo "⚠️  $cmd: NOT FOUND (optional)"
             ((WARNINGS++))
         fi
-        return 1
     fi
+
+    return 0
+}
+
+check_any_command() {
+    local required="$1"
+    shift
+
+    local found=""
+    local cmd
+    for cmd in "$@"; do
+        if [[ "$cmd" == */* ]] && [ -x "$cmd" ]; then
+            found="$cmd"
+            break
+        fi
+
+        if command -v "$cmd" &>/dev/null; then
+            found="$cmd"
+            break
+        fi
+    done
+
+    if [ -n "$found" ]; then
+        if [[ "$found" == */* ]]; then
+            echo "✅ whisper command: $found"
+        else
+            echo "✅ whisper command: $found ($(command -v "$found"))"
+        fi
+    else
+        if [ "$required" = "yes" ]; then
+            echo "❌ whisper command: NOT FOUND (looked for: $*)"
+            ((ERRORS++))
+        else
+            echo "⚠️  whisper command: NOT FOUND (optional)"
+            ((WARNINGS++))
+        fi
+    fi
+
+    return 0
 }
 
 check_file() {
@@ -40,7 +77,6 @@ check_file() {
     
     if [ -f "$file" ]; then
         echo "✅ $file: EXISTS"
-        return 0
     else
         if [ "$required" = "yes" ]; then
             echo "❌ $file: MISSING (REQUIRED)"
@@ -49,8 +85,9 @@ check_file() {
             echo "⚠️  $file: MISSING (optional)"
             ((WARNINGS++))
         fi
-        return 1
     fi
+
+    return 0
 }
 
 check_dir() {
@@ -58,12 +95,12 @@ check_dir() {
     
     if [ -d "$dir" ]; then
         echo "✅ $dir/: EXISTS"
-        return 0
     else
         echo "⚠️  $dir/: MISSING (will be created)"
         ((WARNINGS++))
-        return 1
     fi
+
+    return 0
 }
 
 echo "=== Checking System Requirements ==="
@@ -71,7 +108,8 @@ echo
 
 check_command "bash" "yes"
 check_command "ffmpeg" "yes"
-check_command "whisper-cli" "yes"
+check_command "ffprobe" "yes"
+check_any_command "yes" "bin/whisper-cli" "bin/whisper-cpp" "whisper-cli" "whisper-cpp" "whisper"
 check_command "curl" "yes"
 check_command "bc" "no"
 check_command "jq" "no"
@@ -91,6 +129,7 @@ echo
 check_dir "queue/incoming"
 check_dir "queue/processing"
 check_dir "queue/done"
+check_dir "queue/failed"
 check_dir "models"
 check_dir "workspace"
 check_dir "logs"
@@ -199,6 +238,18 @@ fi
 echo
 echo "=== Validation Summary ==="
 echo
+
+if [ "$ERRORS" -gt 0 ]; then
+    OS_NAME=$(uname -s)
+    echo "Install hints:"
+    if [ "$OS_NAME" = "Darwin" ]; then
+        echo "  brew install ffmpeg whisper-cpp"
+    elif [ "$OS_NAME" = "Linux" ]; then
+        echo "  Ubuntu/Debian: sudo apt update && sudo apt install -y ffmpeg curl build-essential cmake git"
+        echo "  Then build whisper.cpp or install a package that provides whisper-cli"
+    fi
+    echo
+fi
 
 if [ "$ERRORS" -eq 0 ] && [ "$WARNINGS" -eq 0 ]; then
     echo "🎉 Perfect! ULTRANSC is ready to use."

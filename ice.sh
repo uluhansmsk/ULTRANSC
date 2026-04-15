@@ -56,9 +56,11 @@ SEARCH_REGEX="${SEARCH_REGEX%.*}"
 MATCHED_FILE=""
 LECTURE_NAME=""
 
-for job in $(ls "$WORKSPACE"); do
+for job_path in "$WORKSPACE"/*; do
+    [[ -d "$job_path" ]] || continue
+    job="$(basename "$job_path")"
     if [[ "$job" =~ $SEARCH_REGEX ]]; then
-        t=$(find "$WORKSPACE/$job" -maxdepth 1 -type f -name "transcript.txt" | head -n 1)
+        t=$(find "$job_path" -maxdepth 1 -type f -name "transcript.txt" | head -n 1)
         if [[ -n "$t" ]]; then
             MATCHED_FILE="$t"
             LECTURE_NAME="$job"
@@ -117,7 +119,7 @@ for KW in "${KEYWORDS[@]}"; do
     echo
     echo "[INFO] Searching keyword: $KW"
 
-    matches=($(grep -n "$KW" "$FILE" | cut -d: -f1))
+    mapfile -t matches < <(grep -n "$KW" "$FILE" | cut -d: -f1 || true)
 
     if [[ ${#matches[@]} -eq 0 ]]; then
         echo "[WARN] No occurrences for keyword: $KW"

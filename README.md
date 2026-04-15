@@ -1,84 +1,172 @@
 # ULTRANSC
 
-Local-first transcription pipeline. No accounts. No cloud. No bullshit.
+Local-first transcription pipeline for long lecture batches.
 
 ## Status
 
-**v0.5 Stable Edition** — Actually works.
+Version: v0.6.0
+Release date: 2026-04-15
+State: Stable, batch-ready, macOS and Linux supported
 
-## Features
+## What It Does
 
-- Transcribes audio/video from URLs or local files
-- Adaptive two-stage audio processing for optimal quality
-- Automatic model selection (RAM-based)
-- Queue system (drop files in queue/incoming/ or add URLs to queue/links.txt)
-- Works offline
-- Outputs: transcript.txt, transcript.srt, transcript.json, segments.json
+- Transcribes local audio/video files and URLs
+- Uses adaptive two-stage audio preprocessing for noisy speech
+- Selects models automatically, with safe fallback behavior
+- Processes jobs through queue folders
+- Retries transient failures with exponential backoff
+- Isolates failed inputs into a dedicated failed queue
+- Preserves failed URL entries for rerun
+- Produces transcript.txt, transcript.srt, transcript.json, and segments.json
 
 ## Requirements
 
-- ffmpeg (audio processing)
-- whisper-cpp (transcription)
+- bash
+- ffmpeg
+- ffprobe
+- whisper-cli (whisper.cpp)
+- curl
 
-macOS:
+macOS install:
 
-    brew install ffmpeg whisper-cpp
+```bash
+brew install ffmpeg whisper-cpp
+```
 
-Note: yt-dlp downloads automatically on first run.
+Linux quick install (Ubuntu/Debian):
 
-## Installation
+```bash
+sudo apt update
+sudo apt install -y ffmpeg curl build-essential cmake git
+```
 
-    git clone https://github.com/ulhanus/ultransc.git
-    cd ultransc
-    chmod +x ultransc.sh
+If whisper-cli is not available from your distro package manager, ULTRANSC can use a local binary in bin/whisper-cli.
 
-Download a Whisper model:
+yt-dlp is downloaded automatically into bin/ on first run.
 
-    curl -L https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin -o models/ggml-medium.en.bin
+## Out-Of-Box Setup
 
-## Usage
+Run the bootstrap script once:
 
-Process local files:
+```bash
+chmod +x setup.sh
+./setup.sh
+```
 
-    cp lecture.mp4 queue/incoming/
-    ./ultransc.sh
+It will:
 
-Process URLs:
+- Create required queue/workspace/log/model folders
+- Install core dependencies (best effort per OS)
+- Build local whisper.cpp binary when needed (Linux)
+- Download the default model if none is present
+- Run check-setup.sh at the end
 
-    echo "https://www.youtube.com/watch?v=xxx" >> queue/links.txt
-    ./ultransc.sh
+## Quick Start
 
-Output location:
+1. Put files in queue/incoming/.
+2. Optionally add URLs to queue/links.txt, one per line.
+3. Run:
 
-    workspace/
-      filename_timestamp/
-        transcript.txt
-        transcript.json
-        transcript.srt
-        segments.json
-        raw_input
+```bash
+./ultransc.sh
+```
 
-## Configuration (Optional)
+4. Check outputs in workspace/.
 
-Create config/default.conf:
+## Queue Layout
 
-    MODEL=ggml-medium.en.bin
+- queue/incoming: new local files
+- queue/processing: currently active files
+- queue/done: completed source files
+- queue/failed: inputs that failed processing
+- queue/links.txt: pending URL jobs
 
-The script works perfectly without config - smart defaults included.
+## Outputs Per Job
 
-## Companion Tools
+Each job creates:
 
-### ice.sh - Keyword Extraction
+- raw_input
+- transcript.txt
+- transcript.srt
+- transcript.json
+- segments.json
 
-Extract snippets from transcripts:
+Path format:
 
-    ./ice.sh lecture_name -- "keyword1" "keyword2"
+```text
+workspace/<clean_name>_<timestamp>_<random>/
+```
 
-## Philosophy
+## Reliability Features In v0.6.0
 
-- Works - Not theoretical, actually tested and reliable
-- Simple - Does transcription, does it well
-- Local - Your data stays on your machine
-- Offline - No internet required after setup
+- Single-instance lock to prevent concurrent queue corruption
+- Crash recovery for queue/processing back to queue/incoming
+- Retry wrapper for ffmpeg and whisper-cli stages
+- Config-driven processing limits and retry behavior
+- Validation checks for duration parsing and required outputs
+- Optional cleanup of temporary WAV files
+- Linux-friendly whisper command auto-detection (system or local bin/)
+- Optional automatic model bootstrap when models/ is empty
 
-Made because everything went premium and I'm not doing subscriptions.
+## Configuration
+
+Edit config/default.conf to tune behavior.
+
+Important keys:
+
+- MODEL
+- MAX_DURATION
+- MIN_FREE_DISK_MB
+- TARGET_LOUDNESS
+- LANGUAGE
+- THREADS
+- WHISPER_CMD
+- ENABLE_CRASH_RECOVERY
+- AUTO_CLEANUP_TEMP
+- AUTO_DOWNLOAD_MODEL
+- MODEL_BASE_URL
+- MAX_RETRIES
+- RETRY_BACKOFF_BASE
+- RETRY_BACKOFF_MULTIPLIER
+
+Linux note:
+
+- Set WHISPER_CMD to an explicit executable if needed (for example bin/whisper-cli).
+
+## Operational Guidance For Large Batches
+
+- Keep at least 20GB free disk recommended for 50+ lectures
+- Run only one ultransc.sh instance at a time
+- Monitor logs/system.log and logs/errors.log during runs
+- Reprocess queue/failed items after fixing root causes
+
+## Dual-Machine Workflow (macOS + Linux)
+
+- Keep the same repo layout on both machines.
+- Feed each machine with a separate input subset in queue/incoming/.
+- Use distinct links.txt lists per machine for URL jobs.
+- Merge final transcripts from each machine's workspace/ directory.
+
+## Setup Validation
+
+Run:
+
+```bash
+bash check-setup.sh
+```
+
+This validates tools, folders, model presence, permissions, and resource warnings.
+
+## Companion Utility
+
+Keyword extraction helper:
+
+```bash
+./ice.sh <lecture-pattern...> -- "keyword1" "keyword2"
+```
+
+It scans matching transcripts and saves curated snippets in blocks/.
+
+## License
+
+No license file is currently included in this repository.
