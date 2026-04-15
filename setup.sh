@@ -100,6 +100,10 @@ download_default_model_if_missing
 chmod +x ultransc.sh ice.sh check-setup.sh
 
 info "Running setup validation..."
-bash check-setup.sh
+if [ -f "$ROOT_DIR/tests/preflight.sh" ]; then
+    bash "$ROOT_DIR/tests/preflight.sh"
+fi
+
+ULTRANSC_SKIP_PREFLIGHT=1 bash check-setup.sh
 
 info "Setup complete. Run ./ultransc.sh to start processing."

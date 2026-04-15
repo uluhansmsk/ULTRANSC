@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# ULTRANSC v0.7.0 Installation Validator
+# ULTRANSC v0.7.0-beta1 Installation Validator
 # Run this to check if your system is ready
 
 set -euo pipefail
 
 echo "================================================"
-echo "  ULTRANSC v0.7.0 Installation Validator"
+echo "  ULTRANSC v0.7.0-beta1 Installation Validator"
 echo "================================================"
 echo
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"
+
+if [ "${ULTRANSC_SKIP_PREFLIGHT:-0}" != "1" ] && [ -f "$ROOT_DIR/tests/preflight.sh" ]; then
+    bash "$ROOT_DIR/tests/preflight.sh"
+fi
 
 ERRORS=0
 WARNINGS=0

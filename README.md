@@ -4,9 +4,9 @@ Local-first transcription pipeline for long lecture batches.
 
 ## Status
 
-Version: v0.7.0
+Version: v0.7.0-beta1
 Release date: 2026-04-15
-State: Stable, batch-ready, macOS and Linux supported
+State: Beta (modular refactor), macOS and Linux supported
 
 ## What It Does
 
@@ -169,6 +169,26 @@ bash check-setup.sh
 ```
 
 This validates tools, folders, model presence, permissions, and resource warnings.
+
+## Tests
+
+Run the lightweight test suite:
+
+```bash
+bash tests/run.sh
+```
+
+These tests avoid touching production queues or large files.
+
+## Beta Notes
+
+- See BETA_CHANGELOG.md for beta-only notes.
+- See TODO_BETA.md for temporary TODOs to remove after beta.
+
+## Code Structure
+
+- ultransc.sh is the entry point
+- lib/ contains modular shell components (env, model, whisper, audio, jobs, queue)
 
 ## Companion Utility
 
