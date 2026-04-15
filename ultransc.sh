@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────
-#  ULTRANSC v0.6.0 — STABLE EDITION
+#  ULTRANSC v0.7.0 — STABLE EDITION
 # ─────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -52,6 +52,12 @@ AUTO_DOWNLOAD_MODEL="${AUTO_DOWNLOAD_MODEL:-true}"
 MODEL_BASE_URL="${MODEL_BASE_URL:-https://huggingface.co/ggerganov/whisper.cpp/resolve/main}"
 WHISPER_CMD="${WHISPER_CMD:-auto}"
 THREADS="${THREADS:-auto}"
+FAST_MODE="${FAST_MODE:-auto}"
+WHISPER_SPEED_PRESET="${WHISPER_SPEED_PRESET:-fast}"
+WHISPER_ARGS="${WHISPER_ARGS:-}"
+FFMPEG_THREADS="${FFMPEG_THREADS:-auto}"
+STAGE2_MAX_DURATION="${STAGE2_MAX_DURATION:-0}"
+PREFER_METAL="${PREFER_METAL:-true}"
 
 # ─────────────────────────────────────────
 # LOGGING
@@ -66,7 +72,10 @@ log_error() {
 trap 'log_error "ULTRANSC crashed inside a job. Continuing…"' ERR
 
 on_exit() {
-    [ -d "$LOCK_DIR" ] && rmdir "$LOCK_DIR" 2>/dev/null || true
+    if [ -d "$LOCK_DIR" ]; then
+        rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+    fi
 }
 trap on_exit EXIT
 
@@ -104,10 +113,25 @@ mkdir -p "$MODELS_DIR" "$BIN_DIR" "$WORKSPACE" "$LOG_DIR" "$CONFIG_DIR"
 touch "$LINKS" "$SYSTEM_LOG" "$ERROR_LOG"
 
 # Single-instance guard to avoid queue corruption during long runs.
+if [ -d "$LOCK_DIR" ]; then
+    if [ -f "$LOCK_DIR/pid" ]; then
+        lock_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+        if [[ -n "$lock_pid" && "$lock_pid" =~ ^[0-9]+$ ]] && kill -0 "$lock_pid" 2>/dev/null; then
+            log_error "Another ULTRANSC run is active (pid: $lock_pid)."
+            exit 1
+        fi
+    fi
+
+    log "Stale lock detected. Removing $LOCK_DIR"
+    rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+fi
+
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     log_error "Another ULTRANSC run is active (lock: $LOCK_DIR)."
     exit 1
 fi
+echo "$$" > "$LOCK_DIR/pid"
 
 # ─────────────────────────────────────────
 # ENVIRONMENT CHECK
@@ -123,8 +147,43 @@ fi
 ARCH=$(uname -m)
 log "Detected architecture: $ARCH"
 
+if [ "$OS" = "Darwin" ]; then
+    CPU_CORES=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
+else
+    CPU_CORES=$(nproc 2>/dev/null || echo 1)
+fi
+if [[ -z "$CPU_CORES" || ! "$CPU_CORES" =~ ^[0-9]+$ ]]; then
+    CPU_CORES=1
+fi
+
 RAM_GB=$(($(sysctl -n hw.memsize 2>/dev/null || grep MemTotal /proc/meminfo | awk '{print $2 * 1024}') / 1024 / 1024 / 1024))
 log "System RAM: ${RAM_GB}GB"
+log "CPU cores: ${CPU_CORES}"
+
+if [ "$THREADS" = "auto" ]; then
+    THREADS_VALUE="$CPU_CORES"
+else
+    THREADS_VALUE="$THREADS"
+fi
+
+if [ "$FFMPEG_THREADS" = "auto" ]; then
+    FFMPEG_THREADS_VALUE="$CPU_CORES"
+else
+    FFMPEG_THREADS_VALUE="$FFMPEG_THREADS"
+fi
+
+log "Whisper threads: ${THREADS_VALUE}"
+log "FFmpeg threads: ${FFMPEG_THREADS_VALUE}"
+if [ "$FAST_MODE" = "auto" ]; then
+    if [ "$OS" = "Darwin" ]; then
+        FAST_MODE_VALUE="false"
+    else
+        FAST_MODE_VALUE="true"
+    fi
+else
+    FAST_MODE_VALUE="$FAST_MODE"
+fi
+log "Speed preset: ${WHISPER_SPEED_PRESET} (fast mode: ${FAST_MODE_VALUE})"
 
 FREE_GB=$(df -Pk "$ROOT_DIR" | awk 'NR==2 {print int($4/1024/1024)}')
 if (( FREE_GB < 2 )); then
@@ -201,6 +260,16 @@ if [ -z "$WHISPER_BIN" ]; then
     exit 1
 fi
 log "Whisper command OK: $WHISPER_BIN"
+
+METAL_SUPPORTED="false"
+if [ "$OS" = "Darwin" ] && [ "$PREFER_METAL" = "true" ]; then
+    if "$WHISPER_BIN" --help 2>/dev/null | grep -q -- "--metal"; then
+        METAL_SUPPORTED="true"
+        log "Metal acceleration supported"
+    else
+        log "Metal flag not supported by whisper binary; running on CPU"
+    fi
+fi
 
 # Ensure model.json exists
 if [ ! -f "$MODEL_JSON" ]; then
@@ -314,12 +383,17 @@ convert_with_filter() {
     local output="$2"
     local filter="$3"
     local tag="$4"
+    local -a thread_args=()
+
+    if [[ -n "${FFMPEG_THREADS_VALUE:-}" ]]; then
+        thread_args=(-threads "$FFMPEG_THREADS_VALUE")
+    fi
 
     log "Running FFmpeg ($tag)…"
 
     timeout_cmd 300 ffmpeg -i "$input" \
         -af "$filter" \
-        -ar 16000 -ac 1 -c:a pcm_s16le "$output" -y
+        -ar 16000 -ac 1 -c:a pcm_s16le "${thread_args[@]}" "$output" -y
 }
 
 run_with_retries() {
@@ -346,15 +420,47 @@ run_whisper() {
     local wav="$1"
     local out="$2"
 
-    local thread_args=()
-    if [ "$THREADS" != "auto" ]; then
-        thread_args=(--threads "$THREADS")
+    local -a thread_args=()
+    local -a preset_args=()
+    local -a extra_args
+    local -a metal_args=()
+
+    extra_args=()
+
+    if [[ -n "${THREADS_VALUE:-}" ]]; then
+        thread_args=(--threads "$THREADS_VALUE")
+    fi
+
+    case "$WHISPER_SPEED_PRESET" in
+        max|fast)
+            preset_args=(--best-of 1 --beam-size 1)
+            ;;
+        balanced)
+            preset_args=(--best-of 2 --beam-size 2)
+            ;;
+        quality)
+            preset_args=()
+            ;;
+        *)
+            preset_args=()
+            ;;
+    esac
+
+    if [ -n "${WHISPER_ARGS:-}" ]; then
+        read -r -a extra_args <<< "$WHISPER_ARGS"
+    fi
+
+    if [ "$METAL_SUPPORTED" = "true" ]; then
+        metal_args=(--metal)
     fi
 
     timeout_cmd 7200 "$WHISPER_BIN" "$wav" \
         --language "$LANGUAGE" \
         --model "$MODELS_DIR/$MODEL" \
         "${thread_args[@]}" \
+        "${preset_args[@]}" \
+        "${extra_args[@]-}" \
+        "${metal_args[@]-}" \
         --output-txt \
         --output-json \
         --output-srt \
@@ -479,7 +585,16 @@ process_file() {
 
     log "Blank ratio after Stage 1: $BLANK_RATIO"
 
-    if awk -v r="$BLANK_RATIO" 'BEGIN { exit !(r > 0.15) }'; then
+    should_run_stage2="false"
+    if [ "$FAST_MODE_VALUE" = "true" ]; then
+        log "Fast mode enabled — skipping Stage 2"
+    elif [[ "$STAGE2_MAX_DURATION" =~ ^[0-9]+$ ]] && (( STAGE2_MAX_DURATION > 0 )) && (( DURATION > STAGE2_MAX_DURATION )); then
+        log "Stage 2 skipped due to STAGE2_MAX_DURATION (${STAGE2_MAX_DURATION}s)"
+    elif awk -v r="$BLANK_RATIO" 'BEGIN { exit !(r > 0.15) }'; then
+        should_run_stage2="true"
+    fi
+
+    if [ "$should_run_stage2" = "true" ]; then
         log "High blank ratio — running Stage 2…"
 
         if ! run_with_retries convert_with_filter "$proc_file" "$job_dir/audio_stage2.wav" "$FILTER_STAGE2" "Stage 2"; then

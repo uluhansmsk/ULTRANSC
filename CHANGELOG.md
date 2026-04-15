@@ -2,6 +2,26 @@
 
 All notable changes to ULTRANSC are documented in this file.
 
+## v0.7.0 (2026-04-15)
+
+Release type: Linux setup hardening
+
+### Added
+
+- Linux setup now builds whisper-cli with static linking to avoid missing libwhisper.so.1 at runtime.
+- Fast mode to skip Stage 2 for speed.
+- Whisper speed presets and extra args support.
+- Thread auto-detection for whisper and ffmpeg.
+- Metal acceleration support on macOS when available.
+- Stale lock recovery to avoid false "already running" blocks.
+
+### Fixed
+
+- Resolved Linux runtime error: libwhisper.so.1 missing when using local bin/whisper-cli.
+- Avoided macOS failures by only enabling --metal when supported by the whisper binary.
+- Fixed WHISPER_ARGS expansion to avoid unbound variable errors under set -u.
+- Fixed metal_args expansion to avoid unbound variable errors under set -u.
+
 ## v0.6.0 (2026-04-15)
 
 Release type: Stability and operational hardening

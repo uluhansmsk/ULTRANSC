@@ -4,7 +4,7 @@ Local-first transcription pipeline for long lecture batches.
 
 ## Status
 
-Version: v0.6.0
+Version: v0.7.0
 Release date: 2026-04-15
 State: Stable, batch-ready, macOS and Linux supported
 
@@ -97,7 +97,7 @@ Path format:
 workspace/<clean_name>_<timestamp>_<random>/
 ```
 
-## Reliability Features In v0.6.0
+## Reliability And Performance Features In v0.7.0
 
 - Single-instance lock to prevent concurrent queue corruption
 - Crash recovery for queue/processing back to queue/incoming
@@ -107,6 +107,14 @@ workspace/<clean_name>_<timestamp>_<random>/
 - Optional cleanup of temporary WAV files
 - Linux-friendly whisper command auto-detection (system or local bin/)
 - Optional automatic model bootstrap when models/ is empty
+- Linux setup builds whisper-cli without shared lib dependency
+- Fast mode to skip Stage 2 for speed (auto default is off on macOS)
+- Whisper speed presets (fast, balanced, quality)
+- Thread auto-detection for whisper and ffmpeg
+- Metal acceleration on macOS when available
+- Auto-detects --metal support and falls back to CPU if unsupported
+- Safe handling when WHISPER_ARGS is empty under strict shell mode
+- Safe handling when metal args are omitted under strict shell mode
 
 ## Configuration
 
@@ -121,6 +129,11 @@ Important keys:
 - LANGUAGE
 - THREADS
 - WHISPER_CMD
+- FAST_MODE
+- WHISPER_SPEED_PRESET
+- WHISPER_ARGS
+- FFMPEG_THREADS
+- STAGE2_MAX_DURATION
 - ENABLE_CRASH_RECOVERY
 - AUTO_CLEANUP_TEMP
 - AUTO_DOWNLOAD_MODEL
