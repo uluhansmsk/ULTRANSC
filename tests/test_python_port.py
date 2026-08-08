@@ -164,6 +164,64 @@ class PythonPortTests(unittest.TestCase):
         app.process_url_queue()
         self.assertEqual(app.paths.links.read_text(encoding="utf-8"), "https://example.test/video\n")
 
+    def test_successful_url_download_uses_audio_format_and_detects_extension(self) -> None:
+        root = self.make_root()
+        fake_bin = self.install_fake_media_tools(root)
+        app = App(root)
+        app.init_folders()
+        (app.paths.models / "ggml-small.en.bin").write_text("model", encoding="utf-8")
+        app.cpu_cores = 2
+        app.threads_value = "2"
+        app.ffmpeg_threads_value = "2"
+        app.fast_mode_value = "true"
+        app.whisper_bin = "whisper-cli"
+        app.model = "ggml-small.en.bin"
+        write_exe(
+            app.paths.bin / "yt-dlp",
+            textwrap.dedent(
+                """
+                out=''
+                format=''
+                extractor_args=''
+                while [ $# -gt 0 ]; do
+                    case "$1" in
+                        --extractor-args)
+                            shift
+                            extractor_args="$1"
+                            ;;
+                        -f)
+                            shift
+                            format="$1"
+                            ;;
+                        -o)
+                            shift
+                            out="$1"
+                            ;;
+                    esac
+                    shift
+                done
+                test "$format" = "bestaudio/best" || exit 2
+                test "$extractor_args" = "youtube:skip=dash" || exit 3
+                out="${out//%(ext)s/webm}"
+                mkdir -p "$(dirname "$out")"
+                printf media > "$out"
+                """
+            ),
+        )
+        app.paths.links.write_text("https://example.test/video\n", encoding="utf-8")
+        with patch.dict(os.environ, {"PATH": f"{fake_bin}:{os.environ.get('PATH', '')}"}):
+            app.process_url_queue()
+        self.assertEqual(app.paths.links.read_text(encoding="utf-8"), "")
+        self.assertTrue(any(app.paths.done.glob("download_*.webm")))
+
+    def test_queue_metadata_files_are_ignored(self) -> None:
+        root = self.make_root()
+        app = App(root)
+        app.init_folders()
+        (app.paths.incoming / ".DS_Store").write_text("metadata", encoding="utf-8")
+        app.process_incoming_queue()
+        self.assertFalse((app.paths.incoming / ".DS_Store").exists())
+
     def test_ice_uses_regex_for_patterns_and_keywords(self) -> None:
         root = self.make_root()
         job = root / "workspace" / "lecture_A"

@@ -53,6 +53,10 @@ def _move_replace(src: Path, dst: Path) -> None:
     shutil.move(str(src), str(dst))
 
 
+def _is_queue_artifact(path: Path) -> bool:
+    return path.name.startswith(".")
+
+
 def _run(args: List[str], timeout: Optional[int] = None, capture: bool = False) -> subprocess.CompletedProcess:
     kwargs = {
         "text": True,
@@ -625,11 +629,24 @@ class App:
     def recover_processing_queue(self) -> None:
         if self.enable_crash_recovery == "true":
             for item in self.paths.processing.iterdir() if self.paths.processing.exists() else []:
+                if _is_queue_artifact(item):
+                    self.log(f"Ignoring queue metadata file: {item.name}")
+                    if item.is_file() or item.is_symlink():
+                        item.unlink()
+                    continue
                 self.log(f"Recovering interrupted file: {item.name}")
                 _move_replace(item, self.paths.incoming / item.name)
 
     def process_incoming_queue(self) -> None:
         for item in sorted(self.paths.incoming.iterdir()) if self.paths.incoming.exists() else []:
+            if _is_queue_artifact(item):
+                self.log(f"Ignoring queue metadata file: {item.name}")
+                if item.is_file() or item.is_symlink():
+                    item.unlink()
+                continue
+            if not item.is_file():
+                self.log(f"Ignoring non-file queue entry: {item.name}")
+                continue
             if not self.process_file(item):
                 self.log_error("Job failed, continuing.")
 
@@ -643,13 +660,30 @@ class App:
             if not url:
                 continue
             self.log(f"Downloading URL: {url}")
-            out = self.paths.incoming / f"download_{int(time.time())}_{random.randrange(0, 32768)}.mp4"
-            result = _run([str(self.paths.bin / "yt-dlp"), "-o", str(out), url])
+            stem = f"download_{int(time.time())}_{random.randrange(0, 32768)}"
+            out_template = self.paths.incoming / f"{stem}.%(ext)s"
+            result = _run([
+                str(self.paths.bin / "yt-dlp"),
+                "--no-update",
+                "--extractor-args",
+                "youtube:skip=dash",
+                "-f",
+                "bestaudio/best",
+                "-o",
+                str(out_template),
+                url,
+            ])
             if result.returncode != 0:
                 self.log_error(f"Failed to download {url}")
                 kept.append(url)
                 continue
-            if not self.process_file(out):
+            downloads = sorted(self.paths.incoming.glob(f"{stem}.*"))
+            downloaded = next((path for path in downloads if path.is_file() and not _is_queue_artifact(path)), None)
+            if downloaded is None:
+                self.log_error(f"Could not find downloaded file for {url}")
+                kept.append(url)
+                continue
+            if not self.process_file(downloaded):
                 self.log_error(f"URL job failed, keeping URL for retry: {url}")
                 kept.append(url)
         tmp_links.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")

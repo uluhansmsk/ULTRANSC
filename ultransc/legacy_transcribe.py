@@ -36,7 +36,16 @@ def main(argv=None) -> int:
     os.chdir(output_dir)
     print(f"Output directory: {output_dir}")
     print("Downloading source...")
-    subprocess.run(["yt-dlp", "-f", "bestaudio/best", "-o", "source.%(ext)s", url], check=True)
+    subprocess.run([
+        "yt-dlp",
+        "--extractor-args",
+        "youtube:skip=dash",
+        "-f",
+        "bestaudio/best",
+        "-o",
+        "source.%(ext)s",
+        url,
+    ], check=True)
     files = sorted(Path(".").glob("source.*"))
     if not files:
         raise SystemExit("Downloaded source file not found")
