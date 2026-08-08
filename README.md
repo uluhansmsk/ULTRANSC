@@ -163,6 +163,9 @@ Important keys:
 - WHISPER_ARGS
 - FFMPEG_THREADS
 - STAGE2_MAX_DURATION
+- YTDLP_FORMAT
+- YTDLP_EXTRA_ARGS
+- YTDLP_MAX_FILESIZE
 - ENABLE_CRASH_RECOVERY
 - AUTO_CLEANUP_TEMP
 - AUTO_DOWNLOAD_MODEL
@@ -174,6 +177,13 @@ Important keys:
 Linux note:
 
 - Set WHISPER_CMD to an explicit executable if needed, for example bin/whisper-cli.
+
+YouTube note:
+
+- The default URL downloader uses `YTDLP_FORMAT=bestaudio` so ULTRANSC does not fall back to large video downloads when audio-only formats fail.
+- `YTDLP_EXTRA_ARGS` defaults to `--extractor-args youtube:skip=dash` to avoid known DASH/MPD parser issues on some macOS Python installs.
+- If YouTube returns 403 for audio formats, update yt-dlp first. Failed URLs remain in queue/links.txt.
+- If you want a hard cap for accidental large downloads, set `YTDLP_MAX_FILESIZE`, for example `YTDLP_MAX_FILESIZE=500M`.
 
 ## Operational Guidance For Large Batches
 

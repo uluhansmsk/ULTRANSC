@@ -200,7 +200,7 @@ class PythonPortTests(unittest.TestCase):
                     esac
                     shift
                 done
-                test "$format" = "bestaudio/best" || exit 2
+                test "$format" = "bestaudio" || exit 2
                 test "$extractor_args" = "youtube:skip=dash" || exit 3
                 out="${out//%(ext)s/webm}"
                 mkdir -p "$(dirname "$out")"
@@ -214,13 +214,32 @@ class PythonPortTests(unittest.TestCase):
         self.assertEqual(app.paths.links.read_text(encoding="utf-8"), "")
         self.assertTrue(any(app.paths.done.glob("download_*.webm")))
 
+    def test_interrupted_url_download_preserves_queue_and_cleans_partials(self) -> None:
+        root = self.make_root()
+        app = App(root)
+        app.init_folders()
+        app.paths.links.write_text("https://example.test/current\nhttps://example.test/next\n", encoding="utf-8")
+        with patch("ultransc.core._run", side_effect=KeyboardInterrupt):
+            with self.assertRaises(SystemExit) as raised:
+                app.process_url_queue()
+        self.assertEqual(raised.exception.code, 130)
+        self.assertEqual(
+            app.paths.links.read_text(encoding="utf-8"),
+            "https://example.test/current\nhttps://example.test/next\n",
+        )
+        self.assertFalse(list(app.paths.incoming.glob("download_*")))
+
     def test_queue_metadata_files_are_ignored(self) -> None:
         root = self.make_root()
         app = App(root)
         app.init_folders()
         (app.paths.incoming / ".DS_Store").write_text("metadata", encoding="utf-8")
+        (app.paths.incoming / "download_123.mp4.part").write_text("partial", encoding="utf-8")
+        (app.paths.incoming / "download_123.mp4.ytdl").write_text("state", encoding="utf-8")
         app.process_incoming_queue()
         self.assertFalse((app.paths.incoming / ".DS_Store").exists())
+        self.assertFalse((app.paths.incoming / "download_123.mp4.part").exists())
+        self.assertFalse((app.paths.incoming / "download_123.mp4.ytdl").exists())
 
     def test_run_pipeline_skips_preflight_by_default(self) -> None:
         root = self.make_root()

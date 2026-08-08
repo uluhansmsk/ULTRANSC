@@ -54,7 +54,13 @@ def _move_replace(src: Path, dst: Path) -> None:
 
 
 def _is_queue_artifact(path: Path) -> bool:
-    return path.name.startswith(".")
+    return path.name.startswith(".") or path.name.endswith((".part", ".ytdl", ".temp", ".tmp"))
+
+
+def _cleanup_download_attempt(directory: Path, stem: str) -> None:
+    for path in directory.glob(f"{stem}*"):
+        if path.is_file() or path.is_symlink():
+            path.unlink()
 
 
 def _run(args: List[str], timeout: Optional[int] = None, capture: bool = False) -> subprocess.CompletedProcess:
@@ -180,6 +186,9 @@ class App:
         self.stage2_max_duration = int(self._cfg("STAGE2_MAX_DURATION", "0"))
         self.prefer_metal = self._cfg("PREFER_METAL", "true")
         self.run_preflight = self._cfg("RUN_PREFLIGHT", "false")
+        self.ytdlp_format = self._cfg("YTDLP_FORMAT", "bestaudio")
+        self.ytdlp_extra_args = self._cfg("YTDLP_EXTRA_ARGS", "--extractor-args youtube:skip=dash")
+        self.ytdlp_max_filesize = self._cfg("YTDLP_MAX_FILESIZE", "")
         self.default_model = "ggml-medium.en.bin" if model == "auto" else model
 
     def init_folders(self) -> None:
@@ -660,39 +669,57 @@ class App:
         kept: List[str] = []
         if not self.paths.links.exists():
             self.paths.links.touch()
-        for raw in self.paths.links.read_text(encoding="utf-8").splitlines():
+        urls = [line.rstrip("\n") for line in self.paths.links.read_text(encoding="utf-8").splitlines()]
+
+        def save_kept(extra: Optional[List[str]] = None) -> None:
+            lines = kept + (extra or [])
+            tmp_links.write_text("".join(f"{line}\n" for line in lines if line), encoding="utf-8")
+            _move_replace(tmp_links, self.paths.links)
+
+        for index, raw in enumerate(urls):
             url = raw.rstrip("\n")
-            if not url:
+            if not url or url.lstrip().startswith("#"):
                 continue
             self.log(f"Downloading URL: {url}")
             stem = f"download_{int(time.time())}_{random.randrange(0, 32768)}"
             out_template = self.paths.incoming / f"{stem}.%(ext)s"
-            result = _run([
+            ytdlp_args = [
                 str(self.paths.bin / "yt-dlp"),
                 "--no-update",
-                "--extractor-args",
-                "youtube:skip=dash",
                 "-f",
-                "bestaudio/best",
+                self.ytdlp_format,
                 "-o",
                 str(out_template),
-                url,
-            ])
+            ]
+            if self.ytdlp_max_filesize:
+                ytdlp_args.extend(["--max-filesize", self.ytdlp_max_filesize])
+            ytdlp_args.extend(shlex.split(self.ytdlp_extra_args))
+            ytdlp_args.append(url)
+            try:
+                result = _run(ytdlp_args)
+            except KeyboardInterrupt:
+                _cleanup_download_attempt(self.paths.incoming, stem)
+                remaining = [url] + [line for line in urls[index + 1 :] if line]
+                save_kept(remaining)
+                self.log_error(f"Interrupted while downloading {url}; URL queue preserved.")
+                raise SystemExit(130)
             if result.returncode != 0:
+                _cleanup_download_attempt(self.paths.incoming, stem)
                 self.log_error(f"Failed to download {url}")
                 kept.append(url)
                 continue
             downloads = sorted(self.paths.incoming.glob(f"{stem}.*"))
             downloaded = next((path for path in downloads if path.is_file() and not _is_queue_artifact(path)), None)
             if downloaded is None:
+                _cleanup_download_attempt(self.paths.incoming, stem)
                 self.log_error(f"Could not find downloaded file for {url}")
                 kept.append(url)
                 continue
             if not self.process_file(downloaded):
+                _cleanup_download_attempt(self.paths.incoming, stem)
                 self.log_error(f"URL job failed, keeping URL for retry: {url}")
                 kept.append(url)
-        tmp_links.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
-        _move_replace(tmp_links, self.paths.links)
+        save_kept()
 
     def run_queue(self) -> None:
         self.log("Processing queue...")
