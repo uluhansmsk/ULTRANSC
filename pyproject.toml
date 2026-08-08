@@ -4,5 +4,11 @@ version = "0.7.0b1"
 description = "Local-first transcription pipeline for long lecture batches."
 requires-python = ">=3.9"
 
-[tool.ultransc]
-entrypoint = "ultransc.cli:main"
+[project.scripts]
+ultransc = "ultransc.cli:main"
+ultransc-check = "ultransc.check_setup:main"
+ultransc-setup = "ultransc.setup:main"
+ultransc-ice = "ultransc.ice:main"
+ultransc-autofix = "ultransc.autofix:main"
+ultransc-preflight = "ultransc.preflight:main"
+ultransc-legacy-transcribe = "ultransc.legacy_transcribe:main"

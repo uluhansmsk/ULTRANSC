@@ -1,15 +1,15 @@
 # TODO (Remove After Beta)
 
 - TODO: Decide final version name and release notes format.
-- TODO: Verify Python pipeline modules across macOS and Linux in a smoke run.
-- TODO: Add a stable, minimal test fixture for CI-less testing.
+- TODO: Verify the Python pipeline across macOS and Linux in a real media smoke run.
+- TODO: Add a stable, minimal real-media fixture for CI-less testing.
 - TODO: Remove this file before v0.7.0 final.
 - TODO: Decide if preflight should remain mandatory for ultransc.sh runs.
 - TODO: Decide if check-setup should always run preflight.
 
 also:
 
-Modular Bash script (the current target)
+Python CLI/package hardening (the current target)
 Rust CLI rewrite (same behavior, stable config + flags)
 Local scheduler, queue, runtime sandbox, daemon mode
 Knowledge indexing + search (metadata + raw text)

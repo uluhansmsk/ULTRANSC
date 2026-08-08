@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-import subprocess
-from pathlib import Path
-
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
+    from tests.run import main as test_main
+    from .autofix import main as autofix_main
+
     print("[PREFLIGHT] Running tests")
-    result = subprocess.run(["bash", str(root / "tests" / "run.sh")])
-    if result.returncode == 0:
+    if test_main() == 0:
         print("[PREFLIGHT] Tests passed")
         return 0
     print("[PREFLIGHT] Tests failed, running autofix")
-    subprocess.run(["bash", str(root / "tests" / "autofix.sh")], check=True)
+    if autofix_main() != 0:
+        print("[PREFLIGHT][FAIL] autofix failed")
+        return 1
     print("[PREFLIGHT] Re-running tests")
-    subprocess.run(["bash", str(root / "tests" / "run.sh")], check=True)
+    if test_main() != 0:
+        print("[PREFLIGHT][FAIL] tests failed after autofix")
+        return 1
     print("[PREFLIGHT] Preflight complete")
     return 0
 

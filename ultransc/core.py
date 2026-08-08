@@ -7,14 +7,12 @@ import random
 import re
 import shlex
 import shutil
-import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Optional
 from urllib.request import urlretrieve
 
 
@@ -26,8 +24,16 @@ def _read_conf(path: Path) -> Dict[str, str]:
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        key, value = line.split("=", 1)
-        value = value.split("#", 1)[0].strip()
+        try:
+            parts = shlex.split(line, comments=True, posix=True)
+        except ValueError:
+            parts = [line.split("#", 1)[0].strip()]
+        if not parts:
+            continue
+        assignment = parts[1] if parts[0] == "export" and len(parts) > 1 else parts[0]
+        if "=" not in assignment:
+            continue
+        key, value = assignment.split("=", 1)
         values[key.strip()] = value
     return values
 
@@ -562,6 +568,10 @@ class App:
         stage1_txt = job_dir / "transcript_stage1.txt"
         if not stage1_txt.exists() or stage1_txt.stat().st_size == 0:
             return fail_job(f"Missing Stage 1 transcript output for {base}")
+        for suffix in ("json", "srt"):
+            output = job_dir / f"transcript_stage1.{suffix}"
+            if not output.exists() or output.stat().st_size == 0:
+                return fail_job(f"Missing Stage 1 {suffix.upper()} output for {base}")
 
         lines = stage1_txt.read_text(encoding="utf-8", errors="replace").splitlines()
         blank_count = sum(1 for line in lines if "[BLANK_AUDIO]" in line)
@@ -587,6 +597,10 @@ class App:
             transcript_txt = job_dir / "transcript.txt"
             if not transcript_txt.exists() or transcript_txt.stat().st_size == 0:
                 return fail_job(f"Missing Stage 2 transcript output for {base}")
+            for suffix in ("json", "srt"):
+                output = job_dir / f"transcript.{suffix}"
+                if not output.exists() or output.stat().st_size == 0:
+                    return fail_job(f"Missing Stage 2 {suffix.upper()} output for {base}")
         else:
             _move_replace(job_dir / "transcript_stage1.txt", job_dir / "transcript.txt")
             _move_replace(job_dir / "transcript_stage1.json", job_dir / "transcript.json")
@@ -649,9 +663,10 @@ class App:
 
 
 def run_preflight(root: Path) -> None:
-    preflight = root / "tests" / "preflight.sh"
-    if preflight.exists():
-        subprocess.run(["bash", str(preflight)], check=True)
+    from .preflight import main as preflight_main
+
+    if preflight_main() != 0:
+        raise SystemExit(1)
 
 
 def run_pipeline(root: Optional[Path] = None, preflight: bool = True) -> int:
@@ -675,4 +690,3 @@ def run_pipeline(root: Optional[Path] = None, preflight: bool = True) -> int:
         raise
     finally:
         app.release_lock()
-

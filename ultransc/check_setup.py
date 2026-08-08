@@ -3,8 +3,6 @@ from __future__ import annotations
 import os
 import platform
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 from .core import _read_conf
@@ -36,9 +34,10 @@ def _has_any(root: Path, candidates) -> str:
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     if os.environ.get("ULTRANSC_SKIP_PREFLIGHT", "0") != "1":
-        preflight = root / "tests" / "preflight.sh"
-        if preflight.exists():
-            subprocess.run(["bash", str(preflight)], check=True)
+        from .preflight import main as preflight_main
+
+        if preflight_main() != 0:
+            return 1
 
     print("================================================")
     print("  ULTRANSC v0.7.0-beta1 Installation Validator")
@@ -49,7 +48,7 @@ def main() -> int:
     warnings = 0
 
     print("=== Checking System Requirements ===")
-    for cmd, required in (("bash", True), ("ffmpeg", True), ("ffprobe", True), ("curl", True), ("bc", False), ("jq", False)):
+    for cmd, required in (("python3", True), ("ffmpeg", True), ("ffprobe", True), ("bash", False), ("curl", False), ("bc", False), ("jq", False)):
         found = shutil.which(cmd)
         if found:
             _ok(f"{cmd}: {found}")
@@ -68,7 +67,15 @@ def main() -> int:
 
     print()
     print("=== Checking ULTRANSC Structure ===")
-    for rel, required in (("ultransc.sh", True), ("ice.sh", False), ("config/default.conf", True)):
+    for rel, required in (
+        ("pyproject.toml", True),
+        ("ultransc/core.py", True),
+        ("ultransc/ice.py", True),
+        ("ultransc/check_setup.py", True),
+        ("ultransc.sh", False),
+        ("ice.sh", False),
+        ("config/default.conf", True),
+    ):
         path = root / rel
         if path.exists():
             _ok(f"{rel}: EXISTS")

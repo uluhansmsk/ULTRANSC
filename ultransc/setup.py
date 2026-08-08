@@ -99,10 +99,21 @@ def main() -> int:
         if path.exists():
             path.chmod(path.stat().st_mode | 0o111)
     info("Running setup validation...")
-    subprocess.run(["bash", str(root / "tests" / "preflight.sh")], check=True)
-    env = os.environ.copy()
-    env["ULTRANSC_SKIP_PREFLIGHT"] = "1"
-    subprocess.run(["bash", str(root / "check-setup.sh")], env=env, check=True)
+    from .preflight import main as preflight_main
+    from .check_setup import main as check_setup_main
+
+    if preflight_main() != 0:
+        return 1
+    previous = os.environ.get("ULTRANSC_SKIP_PREFLIGHT")
+    os.environ["ULTRANSC_SKIP_PREFLIGHT"] = "1"
+    try:
+        if check_setup_main() != 0:
+            return 1
+    finally:
+        if previous is None:
+            os.environ.pop("ULTRANSC_SKIP_PREFLIGHT", None)
+        else:
+            os.environ["ULTRANSC_SKIP_PREFLIGHT"] = previous
     info("Setup complete. Run ./ultransc.sh to start processing.")
     return 0
 

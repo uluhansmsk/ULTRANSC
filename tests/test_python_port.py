@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ultransc.core import App, _read_conf
+from ultransc.ice import main as ice_main
 
 
 def write_exe(path: Path, body: str) -> None:
@@ -38,7 +39,7 @@ class PythonPortTests(unittest.TestCase):
         )
         return root
 
-    def install_fake_media_tools(self, root: Path, duration: int = 42) -> Path:
+    def install_fake_media_tools(self, root: Path, duration: int = 42, whisper_sidecars: bool = True) -> Path:
         fake_bin = root / "fake-bin"
         fake_bin.mkdir()
         write_exe(fake_bin / "ffprobe", f"echo {duration}\n")
@@ -78,19 +79,26 @@ class PythonPortTests(unittest.TestCase):
                     shift
                 done
                 printf 'hello world\n' > "${out}.txt"
-                printf '{"segments":[]}\n' > "${out}.json"
-                printf '1\n00:00:00,000 --> 00:00:01,000\nhello world\n' > "${out}.srt"
+                if [ "%s" = "true" ]; then
+                    printf '{"segments":[]}\n' > "${out}.json"
+                    printf '1\n00:00:00,000 --> 00:00:01,000\nhello world\n' > "${out}.srt"
+                fi
                 """
-            ),
+            )
+            % ("true" if whisper_sidecars else "false"),
         )
         return fake_bin
 
     def test_config_parser_strips_comments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             conf = Path(tmp) / "default.conf"
-            conf.write_text("MODEL=auto # comment\nWHISPER_ARGS= --foo bar\n", encoding="utf-8")
+            conf.write_text(
+                "MODEL=auto # comment\nTARGET_LOUDNESS=\"-18\"\nWHISPER_ARGS='--prompt \"hello world\"'\n",
+                encoding="utf-8",
+            )
             self.assertEqual(_read_conf(conf)["MODEL"], "auto")
-            self.assertEqual(_read_conf(conf)["WHISPER_ARGS"], "--foo bar")
+            self.assertEqual(_read_conf(conf)["TARGET_LOUDNESS"], "-18")
+            self.assertEqual(_read_conf(conf)["WHISPER_ARGS"], '--prompt "hello world"')
 
     def test_process_file_success_matches_queue_contract(self) -> None:
         root = self.make_root()
@@ -129,6 +137,24 @@ class PythonPortTests(unittest.TestCase):
             self.assertTrue(app.process_file(source))
         self.assertTrue((app.paths.failed / "too-long.mp4").exists())
 
+    def test_missing_whisper_sidecar_fails_job_cleanly(self) -> None:
+        root = self.make_root()
+        fake_bin = self.install_fake_media_tools(root, whisper_sidecars=False)
+        app = App(root)
+        app.init_folders()
+        (app.paths.models / "ggml-small.en.bin").write_text("model", encoding="utf-8")
+        app.cpu_cores = 2
+        app.threads_value = "2"
+        app.ffmpeg_threads_value = "2"
+        app.fast_mode_value = "true"
+        app.whisper_bin = "whisper-cli"
+        app.model = "ggml-small.en.bin"
+        source = app.paths.incoming / "missing-sidecar.mp4"
+        source.write_text("media", encoding="utf-8")
+        with patch.dict(os.environ, {"PATH": f"{fake_bin}:{os.environ.get('PATH', '')}"}):
+            self.assertFalse(app.process_file(source))
+        self.assertTrue((app.paths.failed / "missing-sidecar.mp4").exists())
+
     def test_failed_url_download_is_preserved_for_retry(self) -> None:
         root = self.make_root()
         app = App(root)
@@ -137,6 +163,14 @@ class PythonPortTests(unittest.TestCase):
         app.paths.links.write_text("https://example.test/video\n", encoding="utf-8")
         app.process_url_queue()
         self.assertEqual(app.paths.links.read_text(encoding="utf-8"), "https://example.test/video\n")
+
+    def test_ice_uses_regex_for_patterns_and_keywords(self) -> None:
+        root = self.make_root()
+        job = root / "workspace" / "lecture_A"
+        job.mkdir(parents=True)
+        (job / "transcript.txt").write_text("foo bar\n", encoding="utf-8")
+        with patch("builtins.input", return_value="s"):
+            self.assertEqual(ice_main(["lecture_[A-Z]", "--", "foo|bar"], root=root), 0)
 
 
 if __name__ == "__main__":

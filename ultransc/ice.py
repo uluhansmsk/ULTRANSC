@@ -18,7 +18,7 @@ def similarity(a: str, b: str) -> int:
     return int(100 * same / max_len)
 
 
-def main(argv=None) -> int:
+def main(argv=None, root=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if len(argv) < 3 or "--" not in argv:
         print("Usage: ice.sh <lecture-pattern...> -- <keyword...>")
@@ -26,21 +26,25 @@ def main(argv=None) -> int:
     sep = argv.index("--")
     patterns = argv[:sep]
     keywords = argv[sep + 1 :]
-    root = Path(__file__).resolve().parents[1]
-    workspace = root / "workspace"
-    block_dir = root / "blocks"
+    root_path = Path(root).resolve() if root is not None else Path(__file__).resolve().parents[1]
+    workspace = root_path / "workspace"
+    block_dir = root_path / "blocks"
     block_dir.mkdir(exist_ok=True)
     if not workspace.is_dir():
-        print(f"ERROR: workspace/ not found in {root}")
+        print(f"ERROR: workspace/ not found in {root_path}")
         return 1
     print("[INFO] Searching transcripts...")
-    search_regex = ".*".join(re.escape(part) for part in patterns)
+    search_regex = ".*".join(patterns)
     matched_file = None
     lecture_name = ""
     for job_path in workspace.iterdir():
         if not job_path.is_dir():
             continue
-        if re.search(search_regex, job_path.name):
+        try:
+            pattern_matches = re.search(search_regex, job_path.name) is not None
+        except re.error:
+            pattern_matches = search_regex in job_path.name
+        if pattern_matches:
             transcript = job_path / "transcript.txt"
             if transcript.exists():
                 matched_file = transcript
@@ -58,7 +62,10 @@ def main(argv=None) -> int:
     for keyword in keywords:
         print()
         print(f"[INFO] Searching keyword: {keyword}")
-        matches = [idx + 1 for idx, line in enumerate(lines) if keyword in line]
+        try:
+            matches = [idx + 1 for idx, line in enumerate(lines) if re.search(keyword, line)]
+        except re.error:
+            matches = []
         if not matches:
             print(f"[WARN] No occurrences for keyword: {keyword}")
             continue

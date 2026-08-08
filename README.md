@@ -1,31 +1,46 @@
 # ULTRANSC
 
-Local-first transcription pipeline for long lecture batches.
+Local-first Python transcription pipeline for long lecture batches.
 
 ## Status
 
 Version: v0.7.0-beta1
 Release date: 2026-04-15
-State: Beta (modular refactor), macOS and Linux supported
+State: Beta Python refactor, macOS and Linux supported
 
 ## What It Does
 
 - Transcribes local audio/video files and URLs
 - Uses adaptive two-stage audio preprocessing for noisy speech
-- Selects models automatically, with safe fallback behavior
+- Selects Whisper models automatically, with safe fallback behavior
 - Processes jobs through queue folders
-- Retries transient failures with exponential backoff
-- Isolates failed inputs into a dedicated failed queue
-- Preserves failed URL entries for rerun
+- Retries transient ffmpeg and whisper-cli failures with exponential backoff
+- Isolates failed inputs into queue/failed
+- Preserves failed URL entries in queue/links.txt for rerun
 - Produces transcript.txt, transcript.srt, transcript.json, and segments.json
+
+## Implementation
+
+ULTRANSC is implemented in Python under ultransc/.
+
+The .sh files are compatibility launchers only:
+
+- ultransc.sh -> python3 -m ultransc
+- check-setup.sh -> python3 -m ultransc.check_setup
+- setup.sh -> python3 -m ultransc.setup
+- ice.sh -> python3 -m ultransc.ice
+- tests/*.sh -> Python test/preflight modules
+- legacy/transcribe.sh -> python3 -m ultransc.legacy_transcribe
+
+No pipeline, setup, check, test, or helper logic lives in shell scripts in this branch.
 
 ## Requirements
 
-- bash
+- Python 3.9+
 - ffmpeg
 - ffprobe
-- whisper-cli (whisper.cpp)
-- curl
+- whisper-cli, whisper-cpp, or whisper from whisper.cpp
+- bash only if using the compatibility .sh launchers
 
 macOS install:
 
@@ -40,32 +55,43 @@ sudo apt update
 sudo apt install -y ffmpeg curl build-essential cmake git
 ```
 
-If whisper-cli is not available from your distro package manager, ULTRANSC can use a local binary in bin/whisper-cli.
+If whisper-cli is not available from your package manager, ULTRANSC can use a local binary in bin/whisper-cli.
 
-yt-dlp is downloaded automatically into bin/ on first run.
+yt-dlp is downloaded automatically into bin/ on first run when missing.
 
 ## Out-Of-Box Setup
 
-Run the bootstrap script once:
+Run the Python setup command:
 
 ```bash
-chmod +x setup.sh
+python3 -m ultransc.setup
+```
+
+Compatibility wrapper:
+
+```bash
 ./setup.sh
 ```
 
-It will:
+Setup will:
 
 - Create required queue/workspace/log/model folders
-- Install core dependencies (best effort per OS)
-- Build local whisper.cpp binary when needed (Linux)
+- Install core dependencies best-effort per OS
+- Build local whisper.cpp binary when needed on Linux
 - Download the default model if none is present
-- Run check-setup.sh at the end
+- Run Python preflight and check-setup validation
 
 ## Quick Start
 
 1. Put files in queue/incoming/.
 2. Optionally add URLs to queue/links.txt, one per line.
 3. Run:
+
+```bash
+python3 -m ultransc
+```
+
+Compatibility wrapper:
 
 ```bash
 ./ultransc.sh
@@ -83,7 +109,7 @@ It will:
 
 ## Outputs Per Job
 
-Each job creates:
+Each completed job creates:
 
 - raw_input
 - transcript.txt
@@ -97,28 +123,31 @@ Path format:
 workspace/<clean_name>_<timestamp>_<random>/
 ```
 
-## Reliability And Performance Features In v0.7.0
+## Reliability And Performance Features
 
 - Single-instance lock to prevent concurrent queue corruption
 - Crash recovery for queue/processing back to queue/incoming
 - Retry wrapper for ffmpeg and whisper-cli stages
-- Config-driven processing limits and retry behavior
-- Validation checks for duration parsing and required outputs
+- Shell-style config parsing for existing config/default.conf compatibility
+- Validation checks for duration parsing and required transcript sidecar outputs
 - Optional cleanup of temporary WAV files
-- Linux-friendly whisper command auto-detection (system or local bin/)
+- Linux-friendly whisper command auto-detection from system PATH or bin/
 - Optional automatic model bootstrap when models/ is empty
-- Linux setup builds whisper-cli without shared lib dependency
 - Fast mode to skip Stage 2 for speed (auto default is off on macOS)
-- Whisper speed presets (fast, balanced, quality)
+- Whisper speed presets: fast, balanced, quality
 - Thread auto-detection for whisper and ffmpeg
-- Metal acceleration on macOS when available
-- Auto-detects --metal support and falls back to CPU if unsupported
-- Safe handling when WHISPER_ARGS is empty under strict shell mode
-- Safe handling when metal args are omitted under strict shell mode
+- Metal acceleration on macOS when supported by the detected whisper binary
 
 ## Configuration
 
 Edit config/default.conf to tune behavior.
+
+The parser accepts shell-style assignment lines, including comments and quoted values:
+
+```bash
+TARGET_LOUDNESS="-18"
+WHISPER_ARGS='--prompt "course lecture"'
+```
 
 Important keys:
 
@@ -144,16 +173,16 @@ Important keys:
 
 Linux note:
 
-- Set WHISPER_CMD to an explicit executable if needed (for example bin/whisper-cli).
+- Set WHISPER_CMD to an explicit executable if needed, for example bin/whisper-cli.
 
 ## Operational Guidance For Large Batches
 
 - Keep at least 20GB free disk recommended for 50+ lectures
-- Run only one ultransc.sh instance at a time
+- Run only one ULTRANSC instance at a time
 - Monitor logs/system.log and logs/errors.log during runs
 - Reprocess queue/failed items after fixing root causes
 
-## Dual-Machine Workflow (macOS + Linux)
+## Dual-Machine Workflow
 
 - Keep the same repo layout on both machines.
 - Feed each machine with a separate input subset in queue/incoming/.
@@ -165,34 +194,52 @@ Linux note:
 Run:
 
 ```bash
-bash check-setup.sh
+python3 -m ultransc.check_setup
 ```
 
-This validates tools, folders, model presence, permissions, and resource warnings.
+Compatibility wrapper:
+
+```bash
+./check-setup.sh
+```
+
+This validates Python files, external tools, folders, model presence, permissions, and resource warnings.
 
 ## Tests
 
-Run the lightweight test suite:
+Run:
+
+```bash
+python3 tests/run.py
+```
+
+Compatibility wrapper:
 
 ```bash
 bash tests/run.sh
 ```
 
-These tests avoid touching production queues or large files and use fake media tools for Python pipeline coverage.
-
-## Beta Notes
-
-- See BETA_CHANGELOG.md for beta-only notes.
-- See TODO_BETA.md for temporary TODOs to remove after beta.
+The tests avoid production queues and real media processing. They use fake ffmpeg, ffprobe, whisper-cli, and yt-dlp binaries to verify queue behavior, output validation, config parsing, URL retries, and the ice helper.
 
 ## Code Structure
 
-- ultransc.sh is the compatibility entry point
-- ultransc/ contains the Python pipeline implementation
+- ultransc/core.py: main pipeline, queue handling, model selection, audio conversion, whisper invocation
+- ultransc/check_setup.py: setup validator
+- ultransc/setup.py: bootstrap/install flow
+- ultransc/ice.py: transcript snippet helper
+- ultransc/preflight.py and ultransc/autofix.py: validation helpers
+- ultransc/legacy_transcribe.py: Python version of the legacy one-shot URL helper
+- tests/: Python tests and compatibility launchers
 
 ## Companion Utility
 
 Keyword extraction helper:
+
+```bash
+python3 -m ultransc.ice <lecture-pattern...> -- "keyword1" "keyword2"
+```
+
+Compatibility wrapper:
 
 ```bash
 ./ice.sh <lecture-pattern...> -- "keyword1" "keyword2"
