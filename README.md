@@ -178,7 +178,7 @@ Run the lightweight test suite:
 bash tests/run.sh
 ```
 
-These tests avoid touching production queues or large files.
+These tests avoid touching production queues or large files and use fake media tools for Python pipeline coverage.
 
 ## Beta Notes
 
@@ -187,8 +187,8 @@ These tests avoid touching production queues or large files.
 
 ## Code Structure
 
-- ultransc.sh is the entry point
-- lib/ contains modular shell components (env, model, whisper, audio, jobs, queue)
+- ultransc.sh is the compatibility entry point
+- ultransc/ contains the Python pipeline implementation
 
 ## Companion Utility
 

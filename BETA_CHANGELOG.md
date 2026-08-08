@@ -4,7 +4,7 @@ This file tracks beta-only changes during the modular refactor period.
 
 ## v0.7.0-beta1 (2026-04-15)
 
-- Modular lib/ refactor for maintainability.
+- Python package refactor for maintainability.
 - Linux setup builds whisper-cli without shared lib dependency.
 - macOS Metal auto-detection and safe fallback.
 - Fast-mode and performance knobs (beta defaults).

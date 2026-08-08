@@ -6,6 +6,8 @@ logs/
 workspace/
 *.log
 .vscode/
+__pycache__/
+*.pyc
 
 queue/.DS_Store
 

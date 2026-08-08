@@ -1,6 +1,6 @@
 # Tests
 
-These tests are lightweight and safe. They do not execute the full pipeline.
+These tests are lightweight and safe. They do not execute real media processing.
 
 Run:
 
@@ -16,7 +16,6 @@ bash tests/preflight.sh
 
 What it checks:
 
-- Shell syntax for key scripts
-- Module exports in lib/
-- Required config keys
-- Executable permissions for key scripts
+- Python compilation checks
+- Python pipeline behavior with fake ffmpeg, ffprobe, whisper-cli, and yt-dlp
+- Shell wrapper syntax for compatibility scripts
