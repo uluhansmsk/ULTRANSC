@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ultransc.core import App, _read_conf
+from ultransc.core import App, _read_conf, run_pipeline
 from ultransc.ice import main as ice_main
 
 
@@ -221,6 +221,21 @@ class PythonPortTests(unittest.TestCase):
         (app.paths.incoming / ".DS_Store").write_text("metadata", encoding="utf-8")
         app.process_incoming_queue()
         self.assertFalse((app.paths.incoming / ".DS_Store").exists())
+
+    def test_run_pipeline_skips_preflight_by_default(self) -> None:
+        root = self.make_root()
+        with patch("ultransc.core.run_preflight") as preflight:
+            with patch.object(App, "check_environment"), patch.object(App, "init_whisper"), patch.object(App, "init_model"), patch.object(App, "clean_incomplete_jobs"), patch.object(App, "run_queue"):
+                self.assertEqual(run_pipeline(root), 0)
+        preflight.assert_not_called()
+
+    def test_run_pipeline_honors_preflight_env_opt_in(self) -> None:
+        root = self.make_root()
+        with patch("ultransc.core.run_preflight") as preflight:
+            with patch.dict(os.environ, {"ULTRANSC_RUN_PREFLIGHT": "1"}):
+                with patch.object(App, "check_environment"), patch.object(App, "init_whisper"), patch.object(App, "init_model"), patch.object(App, "clean_incomplete_jobs"), patch.object(App, "run_queue"):
+                    self.assertEqual(run_pipeline(root), 0)
+        preflight.assert_called_once()
 
     def test_ice_uses_regex_for_patterns_and_keywords(self) -> None:
         root = self.make_root()

@@ -221,6 +221,20 @@ bash tests/run.sh
 
 The tests avoid production queues and real media processing. They use fake ffmpeg, ffprobe, whisper-cli, and yt-dlp binaries to verify queue behavior, output validation, config parsing, URL retries, and the ice helper.
 
+Normal transcription runs do not execute tests by default. To run preflight explicitly:
+
+```bash
+python3 -m ultransc.preflight
+```
+
+To force preflight before every `python3 -m ultransc` run, set either:
+
+```bash
+ULTRANSC_RUN_PREFLIGHT=1 python3 -m ultransc
+```
+
+or set `RUN_PREFLIGHT=true` in config/default.conf.
+
 ## Code Structure
 
 - ultransc/core.py: main pipeline, queue handling, model selection, audio conversion, whisper invocation

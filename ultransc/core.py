@@ -179,6 +179,7 @@ class App:
         self.ffmpeg_threads = self._cfg("FFMPEG_THREADS", "auto")
         self.stage2_max_duration = int(self._cfg("STAGE2_MAX_DURATION", "0"))
         self.prefer_metal = self._cfg("PREFER_METAL", "true")
+        self.run_preflight = self._cfg("RUN_PREFLIGHT", "false")
         self.default_model = "ggml-medium.en.bin" if model == "auto" else model
 
     def init_folders(self) -> None:
@@ -304,7 +305,11 @@ class App:
         self.cpu_cores = os.cpu_count() or 1
         if self.os_name == "Darwin":
             try:
-                mem_bytes = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip())
+                mem_bytes = int(subprocess.check_output(
+                    ["sysctl", "-n", "hw.memsize"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                ).strip())
                 self.ram_gb = int(mem_bytes / 1024 / 1024 / 1024)
             except Exception:
                 self.ram_gb = 1
@@ -703,10 +708,18 @@ def run_preflight(root: Path) -> None:
         raise SystemExit(1)
 
 
-def run_pipeline(root: Optional[Path] = None, preflight: bool = True) -> int:
+def _truthy(value: Optional[str]) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def run_pipeline(root: Optional[Path] = None, preflight: Optional[bool] = None) -> int:
     app = App(root)
     app.init_folders()
-    if preflight:
+    should_preflight = preflight
+    if should_preflight is None:
+        env_preflight = os.environ.get("ULTRANSC_RUN_PREFLIGHT")
+        should_preflight = _truthy(env_preflight) if env_preflight is not None else _truthy(app.run_preflight)
+    if should_preflight:
         run_preflight(app.paths.root)
     app.acquire_lock()
     try:

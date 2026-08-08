@@ -4,7 +4,7 @@
 - TODO: Verify the Python pipeline across macOS and Linux in a real media smoke run.
 - TODO: Add a stable, minimal real-media fixture for CI-less testing.
 - TODO: Remove this file before v0.7.0 final.
-- TODO: Decide if preflight should remain mandatory for ultransc.sh runs.
+- TODO: Decide if RUN_PREFLIGHT should remain available after beta.
 - TODO: Decide if check-setup should always run preflight.
 
 also:
