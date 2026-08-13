@@ -114,7 +114,7 @@ def main() -> int:
     conf = _read_conf(root / "config" / "default.conf")
     if conf:
         _ok("Configuration file exists")
-        for key in ("MODEL", "ENABLE_CHUNKING", "ENABLE_CRASH_RECOVERY"):
+        for key in ("MODEL", "WHISPER_CMD", "ENABLE_CRASH_RECOVERY", "RUN_PREFLIGHT"):
             if key in conf:
                 print(f"   {key}: {conf[key]}")
 

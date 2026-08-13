@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from ultransc.cli import main as cli_main
 from ultransc.core import App, _read_conf, run_pipeline
 from ultransc.ice import main as ice_main
 
@@ -155,6 +158,47 @@ class PythonPortTests(unittest.TestCase):
             self.assertFalse(app.process_file(source))
         self.assertTrue((app.paths.failed / "missing-sidecar.mp4").exists())
 
+    def test_stage2_runs_when_blank_ratio_is_high(self) -> None:
+        root = self.make_root()
+        app = App(root)
+        app.init_folders()
+        (app.paths.models / "ggml-small.en.bin").write_text("model", encoding="utf-8")
+        app.threads_value = "2"
+        app.ffmpeg_threads_value = "2"
+        app.fast_mode_value = "false"
+        app.whisper_bin = "whisper-cli"
+        app.model = "ggml-small.en.bin"
+        source = app.paths.incoming / "blank-heavy.mp4"
+        source.write_text("media", encoding="utf-8")
+        conversions = []
+        whispers = []
+
+        def fake_convert(input_file: Path, output: Path, audio_filter: str, tag: str) -> bool:
+            conversions.append(tag)
+            output.write_text("wav", encoding="utf-8")
+            return True
+
+        def fake_whisper(wav: Path, out: Path) -> bool:
+            whispers.append(out.name)
+            if out.name == "transcript_stage1":
+                text = "\n".join(["[BLANK_AUDIO]"] * 4 + ["audible speech"])
+            else:
+                text = "stage two recovered speech"
+            out.with_suffix(".txt").write_text(text + "\n", encoding="utf-8")
+            out.with_suffix(".json").write_text('{"segments":[]}\n', encoding="utf-8")
+            out.with_suffix(".srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nspeech\n", encoding="utf-8")
+            return True
+
+        with patch.object(app, "_duration", return_value=42):
+            with patch.object(app, "get_mean_volume", return_value="-30.0"):
+                with patch.object(app, "convert_with_filter", side_effect=fake_convert):
+                    with patch.object(app, "run_whisper", side_effect=fake_whisper):
+                        self.assertTrue(app.process_file(source))
+        jobs = list(app.paths.workspace.glob("blank-heavy_*"))
+        self.assertEqual(conversions, ["Stage 1", "Stage 2"])
+        self.assertEqual(whispers, ["transcript_stage1", "transcript"])
+        self.assertEqual((jobs[0] / "transcript.txt").read_text(encoding="utf-8"), "stage two recovered speech\n")
+
     def test_failed_url_download_is_preserved_for_retry(self) -> None:
         root = self.make_root()
         app = App(root)
@@ -241,6 +285,27 @@ class PythonPortTests(unittest.TestCase):
         self.assertFalse((app.paths.incoming / "download_123.mp4.part").exists())
         self.assertFalse((app.paths.incoming / "download_123.mp4.ytdl").exists())
 
+    def test_active_lock_exits_without_removing_lock(self) -> None:
+        root = self.make_root()
+        app = App(root)
+        app.init_folders()
+        app.paths.lock_dir.mkdir()
+        (app.paths.lock_dir / "pid").write_text(str(os.getpid()), encoding="utf-8")
+        with self.assertRaises(SystemExit) as raised:
+            app.acquire_lock()
+        self.assertEqual(raised.exception.code, 1)
+        self.assertTrue(app.paths.lock_dir.exists())
+
+    def test_cli_preflight_flags_override_config_default(self) -> None:
+        root = self.make_root()
+        with patch("ultransc.cli.run_pipeline", return_value=0) as pipeline:
+            self.assertEqual(cli_main(["--root", str(root), "--preflight"]), 0)
+        pipeline.assert_called_once_with(root, preflight=True)
+
+        with patch("ultransc.cli.run_pipeline", return_value=0) as pipeline:
+            self.assertEqual(cli_main(["--root", str(root), "--no-preflight"]), 0)
+        pipeline.assert_called_once_with(root, preflight=False)
+
     def test_run_pipeline_skips_preflight_by_default(self) -> None:
         root = self.make_root()
         with patch("ultransc.core.run_preflight") as preflight:
@@ -263,6 +328,63 @@ class PythonPortTests(unittest.TestCase):
         (job / "transcript.txt").write_text("foo bar\n", encoding="utf-8")
         with patch("builtins.input", return_value="s"):
             self.assertEqual(ice_main(["lecture_[A-Z]", "--", "foo|bar"], root=root), 0)
+
+    def test_generated_audio_smoke_uses_real_ffmpeg_when_available(self) -> None:
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            self.skipTest("ffmpeg/ffprobe not available")
+        root = self.make_root()
+        fake_bin = root / "fake-bin"
+        fake_bin.mkdir()
+        write_exe(
+            fake_bin / "whisper-cli",
+            textwrap.dedent(
+                """
+                out=''
+                while [ $# -gt 0 ]; do
+                    if [ "$1" = "--output-file" ]; then
+                        shift
+                        out="$1"
+                        break
+                    fi
+                    shift
+                done
+                printf 'generated audio smoke\n' > "${out}.txt"
+                printf '{"segments":[]}\n' > "${out}.json"
+                printf '1\n00:00:00,000 --> 00:00:01,000\ngenerated audio smoke\n' > "${out}.srt"
+                """
+            ),
+        )
+        app = App(root)
+        app.init_folders()
+        (app.paths.models / "ggml-small.en.bin").write_text("model", encoding="utf-8")
+        app.threads_value = "1"
+        app.ffmpeg_threads_value = "1"
+        app.fast_mode_value = "true"
+        app.whisper_bin = "whisper-cli"
+        app.model = "ggml-small.en.bin"
+        source = app.paths.incoming / "generated.wav"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=0.25",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                str(source),
+                "-y",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with patch.dict(os.environ, {"PATH": f"{fake_bin}:{os.environ.get('PATH', '')}"}):
+            self.assertTrue(app.process_file(source))
+        jobs = list(app.paths.workspace.glob("generated_*"))
+        self.assertEqual((jobs[0] / "transcript.txt").read_text(encoding="utf-8"), "generated audio smoke\n")
 
 
 if __name__ == "__main__":

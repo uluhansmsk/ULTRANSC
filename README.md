@@ -2,275 +2,202 @@
 
 Local-first Python transcription pipeline for long lecture batches.
 
-## Status
-
-Version: v0.7.0-beta1
-Release date: 2026-04-15
-State: Beta Python refactor, macOS and Linux supported
-
 ## What It Does
 
-- Transcribes local audio/video files and URLs
-- Uses adaptive two-stage audio preprocessing for noisy speech
-- Selects Whisper models automatically, with safe fallback behavior
-- Processes jobs through queue folders
-- Retries transient ffmpeg and whisper-cli failures with exponential backoff
-- Isolates failed inputs into queue/failed
-- Preserves failed URL entries in queue/links.txt for rerun
-- Produces transcript.txt, transcript.srt, transcript.json, and segments.json
+ULTRANSC processes local media files and URL jobs from a filesystem queue, converts audio with `ffmpeg`, transcribes with a local Whisper executable, and writes transcript outputs without sending media to a hosted transcription service.
+
+- Transcribes local audio/video files from `queue/incoming/`
+- Downloads URL jobs from `queue/links.txt` with audio-first `yt-dlp` defaults
+- Uses two-stage audio preprocessing for noisy speech
+- Selects a local Whisper model automatically, with safe fallback behavior
+- Retries transient `ffmpeg` and `whisper-cli` failures with exponential backoff
+- Moves failed inputs into `queue/failed/`
+- Preserves failed URL entries for rerun
+- Recovers interrupted files from `queue/processing/`
+- Produces `transcript.txt`, `transcript.srt`, `transcript.json`, and `segments.json`
 
 ## Implementation
 
-ULTRANSC is implemented in Python under ultransc/.
+The primary implementation is Python under `ultransc/`.
 
-The .sh files are compatibility launchers only:
+Compatibility shell launchers remain for existing users:
 
-- ultransc.sh -> python3 -m ultransc
-- check-setup.sh -> python3 -m ultransc.check_setup
-- setup.sh -> python3 -m ultransc.setup
-- ice.sh -> python3 -m ultransc.ice
-- tests/*.sh -> Python test/preflight modules
-- legacy/transcribe.sh -> python3 -m ultransc.legacy_transcribe
+- `ultransc.sh` -> `python3 -m ultransc`
+- `check-setup.sh` -> `python3 -m ultransc.check_setup`
+- `setup.sh` -> `python3 -m ultransc.setup`
+- `ice.sh` -> `python3 -m ultransc.ice`
+- `legacy/transcribe.sh` -> `python3 -m ultransc.legacy_transcribe`
 
-No pipeline, setup, check, test, or helper logic lives in shell scripts in this branch.
+No pipeline, setup, validation, test, or helper logic lives in shell scripts.
 
 ## Requirements
 
 - Python 3.9+
-- ffmpeg
-- ffprobe
-- whisper-cli, whisper-cpp, or whisper from whisper.cpp
-- bash only if using the compatibility .sh launchers
+- `ffmpeg`
+- `ffprobe`
+- `whisper-cli`, `whisper-cpp`, or `whisper` from whisper.cpp
+- Bash only if using the compatibility launchers
 
-macOS install:
+macOS:
 
 ```bash
 brew install ffmpeg whisper-cpp
 ```
 
-Linux quick install (Ubuntu/Debian):
+Ubuntu/Debian:
 
 ```bash
 sudo apt update
 sudo apt install -y ffmpeg curl build-essential cmake git
 ```
 
-If whisper-cli is not available from your package manager, ULTRANSC can use a local binary in bin/whisper-cli.
+If `whisper-cli` is not available from your package manager, ULTRANSC can use a local executable at `bin/whisper-cli`.
 
-yt-dlp is downloaded automatically into bin/ on first run when missing.
-
-## Out-Of-Box Setup
-
-Run the Python setup command:
+## Setup
 
 ```bash
 python3 -m ultransc.setup
 ```
 
-Compatibility wrapper:
+The setup command creates runtime folders, installs or builds external tools where possible, downloads a default Whisper model when none exists, and runs validation.
+
+For a read-only environment check:
 
 ```bash
-./setup.sh
+python3 -m ultransc.check_setup
 ```
-
-Setup will:
-
-- Create required queue/workspace/log/model folders
-- Install core dependencies best-effort per OS
-- Build local whisper.cpp binary when needed on Linux
-- Download the default model if none is present
-- Run Python preflight and check-setup validation
 
 ## Quick Start
 
-1. Put files in queue/incoming/.
-2. Optionally add URLs to queue/links.txt, one per line.
+1. Put media files in `queue/incoming/`.
+2. Optionally add URLs to `queue/links.txt`, one per line.
 3. Run:
 
 ```bash
 python3 -m ultransc
 ```
 
-Compatibility wrapper:
-
-```bash
-./ultransc.sh
-```
-
-4. Check outputs in workspace/.
-
-## Queue Layout
-
-- queue/incoming: new local files
-- queue/processing: currently active files
-- queue/done: completed source files
-- queue/failed: inputs that failed processing
-- queue/links.txt: pending URL jobs
-
-## Outputs Per Job
+4. Read outputs in `workspace/`.
 
 Each completed job creates:
-
-- raw_input
-- transcript.txt
-- transcript.srt
-- transcript.json
-- segments.json
-
-Path format:
 
 ```text
 workspace/<clean_name>_<timestamp>_<random>/
 ```
 
-## Reliability And Performance Features
+with:
 
-- Single-instance lock to prevent concurrent queue corruption
-- Crash recovery for queue/processing back to queue/incoming
-- Retry wrapper for ffmpeg and whisper-cli stages
-- Shell-style config parsing for existing config/default.conf compatibility
-- Validation checks for duration parsing and required transcript sidecar outputs
-- Optional cleanup of temporary WAV files
-- Linux-friendly whisper command auto-detection from system PATH or bin/
-- Optional automatic model bootstrap when models/ is empty
-- Fast mode to skip Stage 2 for speed (auto default is off on macOS)
-- Whisper speed presets: fast, balanced, quality
-- Thread auto-detection for whisper and ffmpeg
-- Metal acceleration on macOS when supported by the detected whisper binary
+- `raw_input`
+- `transcript.txt`
+- `transcript.srt`
+- `transcript.json`
+- `segments.json`
+
+## Queue Layout
+
+- `queue/incoming/`: new local files
+- `queue/processing/`: active files
+- `queue/done/`: completed source files
+- `queue/failed/`: failed inputs
+- `queue/links.txt`: pending URL jobs
+
+Runtime queue contents, logs, downloaded tools, models, and transcript workspaces are intentionally ignored by Git.
 
 ## Configuration
 
-Edit config/default.conf to tune behavior.
+Edit `config/default.conf` to tune implemented behavior.
 
-The parser accepts shell-style assignment lines, including comments and quoted values:
+Important keys:
+
+- `MODEL`
+- `AUTO_DOWNLOAD_MODEL`
+- `MODEL_BASE_URL`
+- `MAX_DURATION`
+- `MIN_FREE_DISK_MB`
+- `TARGET_LOUDNESS`
+- `LANGUAGE`
+- `THREADS`
+- `WHISPER_CMD`
+- `PREFER_METAL`
+- `FAST_MODE`
+- `WHISPER_SPEED_PRESET`
+- `WHISPER_ARGS`
+- `FFMPEG_THREADS`
+- `STAGE2_MAX_DURATION`
+- `YTDLP_FORMAT`
+- `YTDLP_EXTRA_ARGS`
+- `YTDLP_MAX_FILESIZE`
+- `ENABLE_CRASH_RECOVERY`
+- `AUTO_CLEANUP_TEMP`
+- `RUN_PREFLIGHT`
+- `MAX_RETRIES`
+- `RETRY_BACKOFF_BASE`
+- `RETRY_BACKOFF_MULTIPLIER`
+
+The config parser accepts shell-style assignment lines, comments, and quoted values:
 
 ```bash
 TARGET_LOUDNESS="-18"
 WHISPER_ARGS='--prompt "course lecture"'
 ```
 
-Important keys:
+URL defaults are intentionally conservative:
 
-- MODEL
-- MAX_DURATION
-- MIN_FREE_DISK_MB
-- TARGET_LOUDNESS
-- LANGUAGE
-- THREADS
-- WHISPER_CMD
-- FAST_MODE
-- WHISPER_SPEED_PRESET
-- WHISPER_ARGS
-- FFMPEG_THREADS
-- STAGE2_MAX_DURATION
-- YTDLP_FORMAT
-- YTDLP_EXTRA_ARGS
-- YTDLP_MAX_FILESIZE
-- ENABLE_CRASH_RECOVERY
-- AUTO_CLEANUP_TEMP
-- AUTO_DOWNLOAD_MODEL
-- MODEL_BASE_URL
-- MAX_RETRIES
-- RETRY_BACKOFF_BASE
-- RETRY_BACKOFF_MULTIPLIER
+- `YTDLP_FORMAT=bestaudio` avoids large video fallbacks.
+- `YTDLP_EXTRA_ARGS=--extractor-args youtube:skip=dash` works around known DASH parser failures on some environments.
+- Failed URLs remain in `queue/links.txt`.
+- `YTDLP_MAX_FILESIZE` can cap accidental large downloads, for example `500M`.
 
-Linux note:
+## Reliability
 
-- Set WHISPER_CMD to an explicit executable if needed, for example bin/whisper-cli.
-
-YouTube note:
-
-- The default URL downloader uses `YTDLP_FORMAT=bestaudio` so ULTRANSC does not fall back to large video downloads when audio-only formats fail.
-- `YTDLP_EXTRA_ARGS` defaults to `--extractor-args youtube:skip=dash` to avoid known DASH/MPD parser issues on some macOS Python installs.
-- If YouTube returns 403 for audio formats, update yt-dlp first. Failed URLs remain in queue/links.txt.
-- If you want a hard cap for accidental large downloads, set `YTDLP_MAX_FILESIZE`, for example `YTDLP_MAX_FILESIZE=500M`.
-
-## Operational Guidance For Large Batches
-
-- Keep at least 20GB free disk recommended for 50+ lectures
-- Run only one ULTRANSC instance at a time
-- Monitor logs/system.log and logs/errors.log during runs
-- Reprocess queue/failed items after fixing root causes
-
-## Dual-Machine Workflow
-
-- Keep the same repo layout on both machines.
-- Feed each machine with a separate input subset in queue/incoming/.
-- Use distinct links.txt lists per machine for URL jobs.
-- Merge final transcripts from each machine's workspace/ directory.
-
-## Setup Validation
-
-Run:
-
-```bash
-python3 -m ultransc.check_setup
-```
-
-Compatibility wrapper:
-
-```bash
-./check-setup.sh
-```
-
-This validates Python files, external tools, folders, model presence, permissions, and resource warnings.
+- Single-instance lock prevents concurrent queue mutation.
+- Stale locks are detected by PID.
+- Interrupted files in `queue/processing/` return to `queue/incoming/`.
+- Metadata and partial download artifacts are ignored and cleaned.
+- URL queue interruption preserves the current and remaining URLs.
+- `ffmpeg` and Whisper stages run through a bounded retry wrapper.
+- Transcript sidecars are validated before a job is marked complete.
 
 ## Tests
-
-Run:
 
 ```bash
 python3 tests/run.py
 ```
 
-Compatibility wrapper:
+The suite compiles the package, runs unit tests, and checks shell wrapper syntax. Tests use temporary roots and fake external binaries so they do not touch production queues or require real media processing. A minimal generated-audio smoke test exercises real `ffmpeg`/`ffprobe` when they are available and skips otherwise.
 
-```bash
-bash tests/run.sh
-```
-
-The tests avoid production queues and real media processing. They use fake ffmpeg, ffprobe, whisper-cli, and yt-dlp binaries to verify queue behavior, output validation, config parsing, URL retries, and the ice helper.
-
-Normal transcription runs do not execute tests by default. To run preflight explicitly:
+Preflight is opt-in for normal transcription runs:
 
 ```bash
 python3 -m ultransc.preflight
-```
-
-To force preflight before every `python3 -m ultransc` run, set either:
-
-```bash
 ULTRANSC_RUN_PREFLIGHT=1 python3 -m ultransc
 ```
 
-or set `RUN_PREFLIGHT=true` in config/default.conf.
-
 ## Code Structure
 
-- ultransc/core.py: main pipeline, queue handling, model selection, audio conversion, whisper invocation
-- ultransc/check_setup.py: setup validator
-- ultransc/setup.py: bootstrap/install flow
-- ultransc/ice.py: transcript snippet helper
-- ultransc/preflight.py and ultransc/autofix.py: validation helpers
-- ultransc/legacy_transcribe.py: Python version of the legacy one-shot URL helper
-- tests/: Python tests and compatibility launchers
+- `ultransc/core.py`: pipeline orchestration, queue handling, model selection, audio conversion, Whisper invocation
+- `ultransc/check_setup.py`: setup validator
+- `ultransc/setup.py`: bootstrap/install flow
+- `ultransc/ice.py`: transcript snippet helper
+- `ultransc/legacy_transcribe.py`: Python version of the old one-shot URL helper
+- `tests/`: Python tests and compatibility launcher checks
+
+## Design Notes
+
+ULTRANSC is intentionally file-queue based instead of service-first. That keeps media local, makes interrupted work inspectable, and allows long lecture batches to be resumed without a database. The tradeoff is that queue directories and runtime logs are operational state, so they are ignored rather than committed.
+
+The Python port keeps external command calls as argument lists instead of shell strings. This makes `ffmpeg`, `yt-dlp`, and Whisper integration easier to test and avoids shell interpolation hazards from filenames, URLs, and user-provided config values.
 
 ## Companion Utility
 
-Keyword extraction helper:
+`ice` extracts transcript snippets around matching keywords:
 
 ```bash
 python3 -m ultransc.ice <lecture-pattern...> -- "keyword1" "keyword2"
 ```
 
-Compatibility wrapper:
-
-```bash
-./ice.sh <lecture-pattern...> -- "keyword1" "keyword2"
-```
-
-It scans matching transcripts and saves curated snippets in blocks/.
+It scans matching transcripts and saves curated snippets in `blocks/`.
 
 ## License
 
-No license file is currently included in this repository.
+MIT. See `LICENSE`.
