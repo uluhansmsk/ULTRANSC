@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ultransc"
+version = "0.7.0"
+description = "Local-first transcription pipeline for long lecture batches."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Uluhan Simsek" }]
+keywords = ["transcription", "whisper", "ffmpeg", "local-first", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+ultransc = "ultransc.cli:main"
+ultransc-check = "ultransc.check_setup:main"
+ultransc-setup = "ultransc.setup:main"
+ultransc-ice = "ultransc.ice:main"
+ultransc-autofix = "ultransc.autofix:main"
+ultransc-preflight = "ultransc.preflight:main"
+ultransc-legacy-transcribe = "ultransc.legacy_transcribe:main"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+]
+
+[project.urls]
+Repository = "https://github.com/uluhansmsk/ULTRANSC"
+
+[tool.setuptools]
+packages = ["ultransc"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["UP007"]
