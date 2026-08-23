@@ -135,6 +135,9 @@ class PythonPortTests(unittest.TestCase):
         self.assertTrue((jobs[0] / "transcript.txt").exists())
         self.assertTrue((jobs[0] / "transcript.json").exists())
         self.assertTrue((jobs[0] / "transcript.srt").exists())
+        self.assertTrue((jobs[0] / "transcript.vtt").exists())
+        self.assertTrue((jobs[0] / "transcript.md").exists())
+        self.assertTrue((jobs[0] / "transcript.html").exists())
         self.assertTrue((jobs[0] / "segments.json").is_symlink())
 
     def test_too_long_file_moves_to_failed_but_batch_continues(self) -> None:
@@ -307,11 +310,47 @@ class PythonPortTests(unittest.TestCase):
         root = self.make_root()
         with patch("ultransc.cli.run_pipeline", return_value=0) as pipeline:
             self.assertEqual(cli_main(["--root", str(root), "--preflight"]), 0)
-        pipeline.assert_called_once_with(root, preflight=True)
+        pipeline.assert_called_once_with(
+            root=root, preflight=True, config_overrides={}, status=False, clean=None, watch=False, watch_interval=5
+        )
 
         with patch("ultransc.cli.run_pipeline", return_value=0) as pipeline:
             self.assertEqual(cli_main(["--root", str(root), "--no-preflight"]), 0)
-        pipeline.assert_called_once_with(root, preflight=False)
+        pipeline.assert_called_once_with(
+            root=root, preflight=False, config_overrides={}, status=False, clean=None, watch=False, watch_interval=5
+        )
+
+    def test_cli_advanced_flags_and_overrides(self) -> None:
+        root = self.make_root()
+        with patch("ultransc.cli.run_pipeline", return_value=0) as pipeline:
+            self.assertEqual(
+                cli_main([
+                    "--root", str(root),
+                    "--status",
+                    "--clean", "all",
+                    "--model", "ggml-large-v3.bin",
+                    "--lang", "tr",
+                    "--concurrency", "4",
+                    "--webhook", "https://example.com/hook",
+                    "--fast",
+                ]),
+                0,
+            )
+        pipeline.assert_called_once_with(
+            root=root,
+            preflight=None,
+            config_overrides={
+                "model": "ggml-large-v3.bin",
+                "language": "tr",
+                "max_concurrent_jobs": 4,
+                "webhook_url": "https://example.com/hook",
+                "fast_mode": "true",
+            },
+            status=True,
+            clean="all",
+            watch=False,
+            watch_interval=5,
+        )
 
     def test_run_pipeline_skips_preflight_by_default(self) -> None:
         root = self.make_root()
@@ -327,6 +366,38 @@ class PythonPortTests(unittest.TestCase):
                 with patch.object(App, "check_environment"), patch.object(App, "init_whisper"), patch.object(App, "init_model"), patch.object(App, "clean_incomplete_jobs"), patch.object(App, "run_queue"):
                     self.assertEqual(run_pipeline(root), 0)
         preflight.assert_called_once()
+
+    def test_app_status_and_clean_methods(self) -> None:
+        root = self.make_root()
+        app = App(root)
+        app.init_folders()
+        (app.paths.done / "finished.mp4").write_text("dummy", encoding="utf-8")
+        (app.paths.failed / "broken.mp4").write_text("dummy", encoding="utf-8")
+        self.assertEqual(app.clean_queue("done"), 1)
+        self.assertFalse((app.paths.done / "finished.mp4").exists())
+        self.assertTrue((app.paths.failed / "broken.mp4").exists())
+        self.assertEqual(app.clean_queue("failed"), 1)
+        self.assertFalse((app.paths.failed / "broken.mp4").exists())
+
+    def test_rich_transcript_export(self) -> None:
+        from ultransc.export import write_rich_transcripts
+        root = self.make_root()
+        job_dir = root / "workspace" / "sample_job"
+        job_dir.mkdir(parents=True)
+        (job_dir / "transcript.txt").write_text("Hello world this is a test.\n", encoding="utf-8")
+        (job_dir / "transcript.json").write_text(
+            '{"transcription":[{"timestamps":{"from":"00:00:00,000","to":"00:00:02,000"},"text":"Hello world"}]}\n',
+            encoding="utf-8",
+        )
+        write_rich_transcripts(job_dir, "Sample Lecture")
+        self.assertTrue((job_dir / "transcript.md").exists())
+        self.assertTrue((job_dir / "transcript.html").exists())
+        md_text = (job_dir / "transcript.md").read_text(encoding="utf-8")
+        self.assertIn("Sample Lecture", md_text)
+        self.assertIn("[00:00:00]", md_text)
+        html_text = (job_dir / "transcript.html").read_text(encoding="utf-8")
+        self.assertIn("Sample Lecture", html_text)
+        self.assertIn("Hello world", html_text)
 
     def test_ice_uses_regex_for_patterns_and_keywords(self) -> None:
         root = self.make_root()

@@ -20,9 +20,13 @@ from .utils import free_mb, move_replace, is_queue_artifact, notify_webhook
 
 
 class App:
-    def __init__(self, root: Optional[Path] = None) -> None:
+    def __init__(self, root: Optional[Path] = None, config_overrides: Optional[dict] = None) -> None:
         self.paths = Paths((root or Path.cwd()).resolve())
         self.config = Config.load(self.paths.config_file)
+        if config_overrides:
+            for k, v in config_overrides.items():
+                if v is not None and hasattr(self.config, k):
+                    setattr(self.config, k, v)
         self.os_name = platform.system()
         self.arch = platform.machine()
         self.cpu_cores = 1
@@ -298,6 +302,12 @@ class App:
                 segments.symlink_to("transcript.json")
             except OSError:
                 pass
+
+        try:
+            from .export import write_rich_transcripts
+            write_rich_transcripts(job_dir, clean_name)
+        except Exception as e:
+            self.logger.error(f"Could not generate rich transcripts: {e}")
         if self.config.auto_cleanup_temp == "true":
             for temp in (job_dir / "audio_stage1.wav", job_dir / "audio_stage2.wav"):
                 if temp.exists():
@@ -347,6 +357,70 @@ class App:
         self.process_incoming_queue()
         self.process_url_queue()
 
+    def print_status(self) -> None:
+        incoming_count = len([f for f in (self.paths.incoming.iterdir() if self.paths.incoming.exists() else []) if f.is_file() and not is_queue_artifact(f)])
+        processing_count = len([f for f in (self.paths.processing.iterdir() if self.paths.processing.exists() else []) if f.is_file() and not is_queue_artifact(f)])
+        done_count = len([f for f in (self.paths.done.iterdir() if self.paths.done.exists() else []) if f.is_file()])
+        failed_count = len([f for f in (self.paths.failed.iterdir() if self.paths.failed.exists() else []) if f.is_file()])
+
+        url_count = 0
+        if self.paths.links.exists():
+            url_count = len([line for line in self.paths.links.read_text(encoding="utf-8").splitlines() if line.strip() and not line.strip().startswith("#")])
+
+        models = [f.name for f in (self.paths.models.glob("*.bin") if self.paths.models.exists() else [])]
+        free_gb = int(free_mb(self.paths.root) / 1024)
+
+        print("=" * 48)
+        print("            ULTRANSC Queue Status               ")
+        print("=" * 48)
+        print(f" Incoming Queue   : {incoming_count} files")
+        print(f" Processing Queue : {processing_count} files")
+        print(f" Completed (Done) : {done_count} files")
+        print(f" Failed Queue     : {failed_count} files")
+        print(f" Pending URLs     : {url_count} links")
+        print("-" * 48)
+        print(f" Free Disk Space  : {free_gb} GB")
+        print(f" Selected Model   : {self.config.model}")
+        print(f" Installed Models : {', '.join(models) if models else 'None'}")
+        print(f" Concurrency Jobs : {self.config.max_concurrent_jobs}")
+        print(f" Language         : {self.config.language}")
+        print("=" * 48)
+
+    def clean_queue(self, target: str = "done") -> int:
+        count = 0
+        target = target.lower()
+        if target in ("done", "all"):
+            for f in (self.paths.done.iterdir() if self.paths.done.exists() else []):
+                if f.is_file() or f.is_symlink():
+                    f.unlink()
+                    count += 1
+        if target in ("failed", "all"):
+            for f in (self.paths.failed.iterdir() if self.paths.failed.exists() else []):
+                if f.is_file() or f.is_symlink():
+                    f.unlink()
+                    count += 1
+        self.logger.info(f"Cleaned {count} files from queue ({target}).")
+        print(f"[CLEAN] Removed {count} file(s) from {target} queue.")
+        return count
+
+    def watch_queue(self, interval: int = 5) -> None:
+        self.logger.info(f"Starting watch daemon mode (interval: {interval}s).")
+        print(f"[WATCH] ULTRANSC is actively watching for new files... (interval: {interval}s, press Ctrl+C to stop)")
+        try:
+            while True:
+                has_incoming = any(f.is_file() and not is_queue_artifact(f) for f in (self.paths.incoming.iterdir() if self.paths.incoming.exists() else []))
+                has_urls = False
+                if self.paths.links.exists():
+                    has_urls = any(line.strip() and not line.strip().startswith("#") for line in self.paths.links.read_text(encoding="utf-8").splitlines())
+
+                if has_incoming or has_urls:
+                    self.logger.info("New queue entries detected. Starting processing...")
+                    self.run_queue()
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            self.logger.info("Watch mode stopped by user.")
+            print("\n[WATCH] Stopped.")
+
 
 def run_preflight(root: Path) -> None:
     from .preflight import main as preflight_main
@@ -358,9 +432,26 @@ def _truthy(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def run_pipeline(root: Optional[Path] = None, preflight: Optional[bool] = None) -> int:
-    app = App(root)
+def run_pipeline(
+    root: Optional[Path] = None,
+    preflight: Optional[bool] = None,
+    config_overrides: Optional[dict] = None,
+    status: bool = False,
+    clean: Optional[str] = None,
+    watch: bool = False,
+    watch_interval: int = 5,
+) -> int:
+    app = App(root, config_overrides=config_overrides)
     app.init_folders()
+
+    if status:
+        app.print_status()
+        return 0
+
+    if clean:
+        app.clean_queue(clean)
+        return 0
+
     should_preflight = preflight
     if should_preflight is None:
         env_preflight = os.environ.get("ULTRANSC_RUN_PREFLIGHT")
@@ -373,9 +464,12 @@ def run_pipeline(root: Optional[Path] = None, preflight: Optional[bool] = None) 
         app.init_whisper()
         app.init_model()
         app.clean_incomplete_jobs()
-        app.run_queue()
-        app.logger.info("Queue empty. ULTRANSC completed all tasks.")
-        notify_webhook(app.config.webhook_url, "✅ ULTRANSC completed all tasks in queue.")
+        if watch:
+            app.watch_queue(interval=watch_interval)
+        else:
+            app.run_queue()
+            app.logger.info("Queue empty. ULTRANSC completed all tasks.")
+            notify_webhook(app.config.webhook_url, "✅ ULTRANSC completed all tasks in queue.")
         return 0
     except Exception as exc:
         if not isinstance(exc, SystemExit):

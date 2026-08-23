@@ -13,8 +13,8 @@ ULTRANSC processes local media files and URL jobs from a filesystem queue, conve
 - Retries transient `ffmpeg` and `whisper-cli` failures with exponential backoff
 - Moves failed inputs into `queue/failed/`
 - Preserves failed URL entries for rerun
-- Recovers interrupted files from `queue/processing/`
-- Produces `transcript.txt`, `transcript.srt`, `transcript.vtt`, `transcript.json`, and `segments.json`
+- Produces `transcript.txt`, `transcript.srt`, `transcript.vtt`, `transcript.md`, `transcript.html`, `transcript.json`, and `segments.json`
+- Supports continuous watch daemon mode (`--watch`), queue status dashboard (`--status`), and queue cleanup (`--clean`)
 - Supports Discord and Slack completion/crash webhook notifications (`WEBHOOK_URL`)
 
 ## Implementation
@@ -75,7 +75,20 @@ python3 -m ultransc.check_setup
 3. Run:
 
 ```bash
+# Standard batch processing
 python3 -m ultransc
+
+# Continuous watch / daemon mode
+python3 -m ultransc --watch
+
+# Check queue status dashboard
+python3 -m ultransc --status
+
+# Clean finished queue files
+python3 -m ultransc --clean done
+
+# Custom model, language, and concurrency
+python3 -m ultransc --model ggml-large-v3.bin --language tr --concurrency 2
 ```
 
 4. Read outputs in `workspace/`.
@@ -92,6 +105,8 @@ with:
 - `transcript.txt`
 - `transcript.srt`
 - `transcript.vtt`
+- `transcript.md` (timestamped markdown lecture notes)
+- `transcript.html` (interactive browser reader with search)
 - `transcript.json`
 - `segments.json`
 
