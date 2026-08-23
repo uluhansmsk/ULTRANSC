@@ -1,5 +1,11 @@
 # ULTRANSC
 
+[![CI](https://github.com/Dev-Emree/ULTRANSC/actions/workflows/tests.yml/badge.svg)](https://github.com/Dev-Emree/ULTRANSC/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 Local-first Python transcription pipeline for long lecture batches.
 
 ## What It Does
@@ -67,6 +73,20 @@ For a read-only environment check:
 ```bash
 python3 -m ultransc.check_setup
 ```
+
+## Docker Quickstart
+
+You can run ULTRANSC inside a container with all dependencies (`ffmpeg`, `yt-dlp`, and `whisper-cli`) pre-installed:
+
+```bash
+# Start background watch worker with docker compose
+docker compose up -d
+
+# Check status in container
+docker compose exec ultransc python -m ultransc --status
+```
+
+Any files placed in `./queue/incoming/` or links added to `./queue/links.txt` on the host machine will automatically be processed, and transcripts will appear in `./workspace/`.
 
 ## Quick Start
 
@@ -217,6 +237,11 @@ python3 -m ultransc.ice <lecture-pattern...> -- "keyword1" "keyword2"
 
 It scans matching transcripts and saves curated snippets in `blocks/`.
 
+## Contributing
+
+Contributions are very welcome! Please read our [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
+
 ## License
 
 MIT. See `LICENSE`.
+
