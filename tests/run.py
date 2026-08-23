@@ -18,17 +18,21 @@ def main() -> int:
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     if not result.wasSuccessful():
         return 1
-    for script in (
-        "ultransc.sh",
-        "ice.sh",
-        "check-setup.sh",
-        "setup.sh",
-        "tests/preflight.sh",
-        "tests/autofix.sh",
-        "legacy/transcribe.sh",
-    ):
-        subprocess.run(["bash", "-n", str(root / script)], check=True)
-    print("[PASS] shell wrapper syntax checks")
+    import shutil
+    if shutil.which("bash"):
+        for script in (
+            "ultransc.sh",
+            "ice.sh",
+            "check-setup.sh",
+            "setup.sh",
+            "tests/preflight.sh",
+            "tests/autofix.sh",
+            "legacy/transcribe.sh",
+        ):
+            subprocess.run(["bash", "-n", str(root / script)], check=True)
+        print("[PASS] shell wrapper syntax checks")
+    else:
+        print("[SKIP] shell wrapper syntax checks (bash not available)")
     print("[PASS] all tests")
     return 0
 

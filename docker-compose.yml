@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ultransc:
+    build: .
+    container_name: ultransc
+    restart: unless-stopped
+    volumes:
+      - ./queue:/app/queue
+      - ./workspace:/app/workspace
+      - ./models:/app/models
+      - ./config:/app/config
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["--watch"]

@@ -1,20 +1,27 @@
 # ULTRANSC
 
+[![CI](https://github.com/Dev-Emree/ULTRANSC/actions/workflows/tests.yml/badge.svg)](https://github.com/Dev-Emree/ULTRANSC/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 Local-first Python transcription pipeline for long lecture batches.
 
 ## What It Does
 
 ULTRANSC processes local media files and URL jobs from a filesystem queue, converts audio with `ffmpeg`, transcribes with a local Whisper executable, and writes transcript outputs without sending media to a hosted transcription service.
 
-- Transcribes local audio/video files from `queue/incoming/`
+- Transcribes local audio/video files from `queue/incoming/` with optional concurrency (`MAX_CONCURRENT_JOBS`)
 - Downloads URL jobs from `queue/links.txt` with audio-first `yt-dlp` defaults
 - Uses two-stage audio preprocessing for noisy speech
 - Selects a local Whisper model automatically, with safe fallback behavior
 - Retries transient `ffmpeg` and `whisper-cli` failures with exponential backoff
 - Moves failed inputs into `queue/failed/`
 - Preserves failed URL entries for rerun
-- Recovers interrupted files from `queue/processing/`
-- Produces `transcript.txt`, `transcript.srt`, `transcript.json`, and `segments.json`
+- Produces `transcript.txt`, `transcript.srt`, `transcript.vtt`, `transcript.md`, `transcript.html`, `transcript.json`, and `segments.json`
+- Supports continuous watch daemon mode (`--watch`), queue status dashboard (`--status`), and queue cleanup (`--clean`)
+- Supports Discord and Slack completion/crash webhook notifications (`WEBHOOK_URL`)
 
 ## Implementation
 
@@ -67,6 +74,20 @@ For a read-only environment check:
 python3 -m ultransc.check_setup
 ```
 
+## Docker Quickstart
+
+You can run ULTRANSC inside a container with all dependencies (`ffmpeg`, `yt-dlp`, and `whisper-cli`) pre-installed:
+
+```bash
+# Start background watch worker with docker compose
+docker compose up -d
+
+# Check status in container
+docker compose exec ultransc python -m ultransc --status
+```
+
+Any files placed in `./queue/incoming/` or links added to `./queue/links.txt` on the host machine will automatically be processed, and transcripts will appear in `./workspace/`.
+
 ## Quick Start
 
 1. Put media files in `queue/incoming/`.
@@ -74,7 +95,20 @@ python3 -m ultransc.check_setup
 3. Run:
 
 ```bash
+# Standard batch processing
 python3 -m ultransc
+
+# Continuous watch / daemon mode
+python3 -m ultransc --watch
+
+# Check queue status dashboard
+python3 -m ultransc --status
+
+# Clean finished queue files
+python3 -m ultransc --clean done
+
+# Custom model, language, and concurrency
+python3 -m ultransc --model ggml-large-v3.bin --language tr --concurrency 2
 ```
 
 4. Read outputs in `workspace/`.
@@ -90,6 +124,9 @@ with:
 - `raw_input`
 - `transcript.txt`
 - `transcript.srt`
+- `transcript.vtt`
+- `transcript.md` (timestamped markdown lecture notes)
+- `transcript.html` (interactive browser reader with search)
 - `transcript.json`
 - `segments.json`
 
@@ -124,6 +161,8 @@ Important keys:
 - `WHISPER_ARGS`
 - `FFMPEG_THREADS`
 - `STAGE2_MAX_DURATION`
+- `MAX_CONCURRENT_JOBS`
+- `WEBHOOK_URL`
 - `YTDLP_FORMAT`
 - `YTDLP_EXTRA_ARGS`
 - `YTDLP_MAX_FILESIZE`
@@ -198,6 +237,11 @@ python3 -m ultransc.ice <lecture-pattern...> -- "keyword1" "keyword2"
 
 It scans matching transcripts and saves curated snippets in `blocks/`.
 
+## Contributing
+
+Contributions are very welcome! Please read our [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
+
 ## License
 
 MIT. See `LICENSE`.
+
