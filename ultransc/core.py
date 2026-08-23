@@ -16,7 +16,7 @@ from .models import ModelManager
 from .paths import Paths
 from .queue_manager import QueueManager
 from .transcriber import Transcriber
-from .utils import free_mb, move_replace, is_queue_artifact
+from .utils import free_mb, move_replace, is_queue_artifact, notify_webhook
 
 
 class App:
@@ -250,7 +250,7 @@ class App:
         stage1_txt = job_dir / "transcript_stage1.txt"
         if not stage1_txt.exists() or stage1_txt.stat().st_size == 0:
             return fail_job(f"Missing Stage 1 transcript output for {base}")
-        for suffix in ("json", "srt"):
+        for suffix in ("json", "srt", "vtt"):
             output = job_dir / f"transcript_stage1.{suffix}"
             if not output.exists() or output.stat().st_size == 0:
                 return fail_job(f"Missing Stage 1 {suffix.upper()} output for {base}")
@@ -279,7 +279,7 @@ class App:
             transcript_txt = job_dir / "transcript.txt"
             if not transcript_txt.exists() or transcript_txt.stat().st_size == 0:
                 return fail_job(f"Missing Stage 2 transcript output for {base}")
-            for suffix in ("json", "srt"):
+            for suffix in ("json", "srt", "vtt"):
                 output = job_dir / f"transcript.{suffix}"
                 if not output.exists() or output.stat().st_size == 0:
                     return fail_job(f"Missing Stage 2 {suffix.upper()} output for {base}")
@@ -287,6 +287,8 @@ class App:
             move_replace(job_dir / "transcript_stage1.txt", job_dir / "transcript.txt")
             move_replace(job_dir / "transcript_stage1.json", job_dir / "transcript.json")
             move_replace(job_dir / "transcript_stage1.srt", job_dir / "transcript.srt")
+            if (job_dir / "transcript_stage1.vtt").exists():
+                move_replace(job_dir / "transcript_stage1.vtt", job_dir / "transcript.vtt")
 
         if (job_dir / "transcript.json").exists():
             segments = job_dir / "segments.json"
@@ -305,6 +307,7 @@ class App:
         return True
 
     def process_incoming_queue(self) -> None:
+        items = []
         for item in sorted(self.paths.incoming.iterdir()) if self.paths.incoming.exists() else []:
             if is_queue_artifact(item):
                 self.logger.info(f"Ignoring queue metadata file: {item.name}")
@@ -314,8 +317,23 @@ class App:
             if not item.is_file():
                 self.logger.info(f"Ignoring non-file queue entry: {item.name}")
                 continue
-            if not self.process_file(item):
-                self.logger.error("Job failed, continuing.")
+            items.append(item)
+            
+        if not items:
+            return
+            
+        if self.config.max_concurrent_jobs <= 1:
+            for item in items:
+                if not self.process_file(item):
+                    self.logger.error("Job failed, continuing.")
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            self.logger.info(f"Processing up to {self.config.max_concurrent_jobs} jobs concurrently.")
+            with ThreadPoolExecutor(max_workers=self.config.max_concurrent_jobs) as executor:
+                futures = [executor.submit(self.process_file, item) for item in items]
+                for future in futures:
+                    if not future.result():
+                        self.logger.error("Job failed, continuing.")
 
     def process_url_queue(self) -> None:
         self.queue_mgr.process_url_queue(self.process_file)
@@ -357,10 +375,12 @@ def run_pipeline(root: Optional[Path] = None, preflight: Optional[bool] = None) 
         app.clean_incomplete_jobs()
         app.run_queue()
         app.logger.info("Queue empty. ULTRANSC completed all tasks.")
+        notify_webhook(app.config.webhook_url, "✅ ULTRANSC completed all tasks in queue.")
         return 0
     except Exception as exc:
         if not isinstance(exc, SystemExit):
             app.logger.error("ULTRANSC crashed inside a job. Continuing...")
+            notify_webhook(app.config.webhook_url, f"❌ ULTRANSC crashed: {exc}")
             raise
         raise
     finally:

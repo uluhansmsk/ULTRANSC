@@ -21,7 +21,7 @@ class ModelManager:
         self.paths.model_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     def download_with_retry(self, url: str, target_path: Path) -> bool:
-        """Robust download with basic retry logic."""
+        """Robust download with progress reporting and retry logic."""
         attempt = 1
         max_attempts = self.config.max_retries
         delay = self.config.retry_backoff_base
@@ -31,8 +31,23 @@ class ModelManager:
                 self.logger.info(f"Downloading (attempt {attempt}/{max_attempts}): {url}")
                 req = Request(url, headers={'User-Agent': 'ULTRANSC/1.0'})
                 with urlopen(req, timeout=30) as response, open(target_path, 'wb') as out_file:
-                    shutil_copyfileobj = __import__("shutil").copyfileobj
-                    shutil_copyfileobj(response, out_file)
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
+                    chunk_size = 1024 * 1024  # 1MB
+                    last_pct = -1
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        out_file.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            pct = int((downloaded / total_size) * 100)
+                            if pct != last_pct and (pct % 10 == 0 or pct == 100):
+                                mb_down = downloaded / (1024 * 1024)
+                                mb_tot = total_size / (1024 * 1024)
+                                self.logger.info(f"Download progress: {pct}% ({mb_down:.1f}MB / {mb_tot:.1f}MB)")
+                                last_pct = pct
                 return True
             except (URLError, OSError) as e:
                 self.logger.error(f"Download failed: {e}")

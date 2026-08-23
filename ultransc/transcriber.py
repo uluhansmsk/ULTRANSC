@@ -87,6 +87,7 @@ class Transcriber:
             "--output-txt",
             "--output-json",
             "--output-srt",
+            "--output-vtt",
             "--output-file",
             str(out),
         ]

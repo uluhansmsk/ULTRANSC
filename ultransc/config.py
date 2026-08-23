@@ -46,11 +46,13 @@ class Config:
     whisper_args: str = ""
     ffmpeg_threads: str = "auto"
     stage2_max_duration: int = 0
+    max_concurrent_jobs: int = 1
     prefer_metal: str = "true"
     run_preflight: str = "false"
     ytdlp_format: str = "bestaudio"
     ytdlp_extra_args: str = "--extractor-args youtube:skip=dash"
     ytdlp_max_filesize: str = ""
+    webhook_url: str = ""
     filter_stage1: str = "highpass=f=120, lowpass=f=3800, dynaudnorm=p=0.8:m=10, volume={gain:.1f}dB"
     filter_stage2: str = "highpass=f=120, lowpass=f=4200, dynaudnorm=p=0.9:m=12, volume={gain:.1f}dB"
 
@@ -84,11 +86,13 @@ class Config:
             whisper_args=get("WHISPER_ARGS", ""),
             ffmpeg_threads=get("FFMPEG_THREADS", "auto"),
             stage2_max_duration=get_int("STAGE2_MAX_DURATION", 0),
+            max_concurrent_jobs=get_int("MAX_CONCURRENT_JOBS", 1),
             prefer_metal=get("PREFER_METAL", "true"),
             run_preflight=get("RUN_PREFLIGHT", "false"),
             ytdlp_format=get("YTDLP_FORMAT", "bestaudio"),
             ytdlp_extra_args=get("YTDLP_EXTRA_ARGS", "--extractor-args youtube:skip=dash"),
             ytdlp_max_filesize=get("YTDLP_MAX_FILESIZE", ""),
+            webhook_url=get("WEBHOOK_URL", ""),
             filter_stage1=get("FILTER_STAGE1", "highpass=f=120, lowpass=f=3800, dynaudnorm=p=0.8:m=10, volume={gain:.1f}dB"),
             filter_stage2=get("FILTER_STAGE2", "highpass=f=120, lowpass=f=4200, dynaudnorm=p=0.9:m=12, volume={gain:.1f}dB"),
         )

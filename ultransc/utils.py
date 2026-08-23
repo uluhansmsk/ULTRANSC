@@ -1,7 +1,10 @@
 import shutil
 import subprocess
+import json
 from pathlib import Path
 from typing import List, Optional
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 
 def free_mb(path: Path) -> int:
     usage = shutil.disk_usage(path)
@@ -32,3 +35,14 @@ def run_cmd(args: List[str], timeout: Optional[int] = None, capture: bool = Fals
     if capture:
         kwargs.update({"stdout": subprocess.PIPE, "stderr": subprocess.PIPE})
     return subprocess.run(args, **kwargs)
+
+def notify_webhook(url: str, message: str) -> None:
+    if not url:
+        return
+    try:
+        data = json.dumps({"content": message, "text": message}).encode("utf-8")
+        req = Request(url, data=data, headers={'Content-Type': 'application/json', 'User-Agent': 'ULTRANSC/1.0'})
+        with urlopen(req, timeout=10):
+            pass
+    except (URLError, OSError):
+        pass

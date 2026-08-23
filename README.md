@@ -6,7 +6,7 @@ Local-first Python transcription pipeline for long lecture batches.
 
 ULTRANSC processes local media files and URL jobs from a filesystem queue, converts audio with `ffmpeg`, transcribes with a local Whisper executable, and writes transcript outputs without sending media to a hosted transcription service.
 
-- Transcribes local audio/video files from `queue/incoming/`
+- Transcribes local audio/video files from `queue/incoming/` with optional concurrency (`MAX_CONCURRENT_JOBS`)
 - Downloads URL jobs from `queue/links.txt` with audio-first `yt-dlp` defaults
 - Uses two-stage audio preprocessing for noisy speech
 - Selects a local Whisper model automatically, with safe fallback behavior
@@ -14,7 +14,8 @@ ULTRANSC processes local media files and URL jobs from a filesystem queue, conve
 - Moves failed inputs into `queue/failed/`
 - Preserves failed URL entries for rerun
 - Recovers interrupted files from `queue/processing/`
-- Produces `transcript.txt`, `transcript.srt`, `transcript.json`, and `segments.json`
+- Produces `transcript.txt`, `transcript.srt`, `transcript.vtt`, `transcript.json`, and `segments.json`
+- Supports Discord and Slack completion/crash webhook notifications (`WEBHOOK_URL`)
 
 ## Implementation
 
@@ -90,6 +91,7 @@ with:
 - `raw_input`
 - `transcript.txt`
 - `transcript.srt`
+- `transcript.vtt`
 - `transcript.json`
 - `segments.json`
 
@@ -124,6 +126,8 @@ Important keys:
 - `WHISPER_ARGS`
 - `FFMPEG_THREADS`
 - `STAGE2_MAX_DURATION`
+- `MAX_CONCURRENT_JOBS`
+- `WEBHOOK_URL`
 - `YTDLP_FORMAT`
 - `YTDLP_EXTRA_ARGS`
 - `YTDLP_MAX_FILESIZE`

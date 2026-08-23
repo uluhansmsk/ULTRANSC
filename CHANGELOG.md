@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+- Added parallel/concurrent job processing via `MAX_CONCURRENT_JOBS` (`ThreadPoolExecutor`).
+- Added native WebVTT (`.vtt`) subtitle format generation across transcription stages.
+- Added webhook notification integration (`WEBHOOK_URL`) compatible with Discord and Slack.
+- Enhanced download progress reporting for Whisper models with chunk-based transfer statistics.
+- Cross-platform test suite improvements for Windows environments.
+
 ## 0.7.0
 
 - Ported the ULTRANSC runtime from Bash modules to a Python package under `ultransc/`.
