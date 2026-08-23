@@ -263,7 +263,7 @@ class PythonPortTests(unittest.TestCase):
         app = App(root)
         app.init_folders()
         app.paths.links.write_text("https://example.test/current\nhttps://example.test/next\n", encoding="utf-8")
-        with patch("ultransc.core._run", side_effect=KeyboardInterrupt):
+        with patch("ultransc.queue_manager.run_cmd", side_effect=KeyboardInterrupt):
             with self.assertRaises(SystemExit) as raised:
                 app.process_url_queue()
         self.assertEqual(raised.exception.code, 130)
